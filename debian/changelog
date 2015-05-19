@@ -1,9 +1,0 @@
-ros-indigo-teb-local-planner (0.1.1-0saucy) saucy; urgency=high
-
-  * All files added to the indigo-devel branch
-  * Initial commit
-  * Contributors: Christoph Rösmann
-
- -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Mon, 18 May 2015 22:00:00 -0000
-
-
