@@ -25,7 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake_modules)
 message(STATUS "${CMAKE_MODULE_PATH}")
 find_package(Boost REQUIRED COMPONENTS system thread graph)
-find_package(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(SUITESPARSE REQUIRED)
 find_package(G2O REQUIRED)
 
@@ -36,6 +36,27 @@ set(EXTERNAL_LIBS ${SUITESPARSE_LIBRARIES} ${G2O_LIBRARIES})
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
 # catkin_python_setup()
+
+
+## C++11 support
+## Unfortunately, the 3d-party dependency libg2o requires c++11 starting from ROS Jade.
+## Even if the ROS Jade specifications do not want c++11-only packages,
+## we cannot compile without c++11 enabled. Another option would be to downgrade  
+## libg2o third-party package.
+## By now, if you do not want c++11, please refer to the ros indigo version.
+IF(NOT MSVC)
+  include(CheckCXXCompilerFlag)
+  CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
+  CHECK_CXX_COMPILER_FLAG("-std=c++0x" COMPILER_SUPPORTS_CXX0X)
+if(COMPILER_SUPPORTS_CXX11)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+elseif(COMPILER_SUPPORTS_CXX0X)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+else()
+  message(STATUS "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support which is required 
+  by linked third party packages starting from ROS Jade. Ignore this message for ROS Indigo.")
+endif()
+endif()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -168,13 +189,6 @@ target_link_libraries(test_optim_node
    ${catkin_LIBRARIES}
 )
 
-#add_executable(ecmr2015 paper/ecmr2015.cpp)
-
-#target_link_libraries(ecmr2015
-#   teb_local_planner
-#   ${EXTERNAL_LIBS}
-#   ${catkin_LIBRARIES}
-#)
 
 #############
 ## Install ##
@@ -194,6 +208,9 @@ target_link_libraries(test_optim_node
 install(TARGETS teb_local_planner
    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
+install(TARGETS test_optim_node
+   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 ## Mark cpp header files for installation
 install(DIRECTORY include/${PROJECT_NAME}/
@@ -206,6 +223,12 @@ install(DIRECTORY include/${PROJECT_NAME}/
 install(FILES
   teb_local_planner_plugin.xml
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)
+
+install(DIRECTORY
+  launch cfg
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  PATTERN ".svn" EXCLUDE
 )
 
 #############
