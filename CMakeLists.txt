@@ -12,22 +12,35 @@ find_package(catkin REQUIRED COMPONENTS
   dynamic_reconfigure
   geometry_msgs
   interactive_markers
+  message_generation
   nav_core
   nav_msgs
   roscpp
   std_msgs
   pluginlib
   tf
+  tf_conversions
   visualization_msgs
 )
-
+message(STATUS "System: ${CMAKE_SYSTEM}")
 ## System dependencies are found with CMake's conventions
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake_modules)
 message(STATUS "${CMAKE_MODULE_PATH}")
 find_package(Boost REQUIRED COMPONENTS system thread graph)
-find_package(Eigen3 REQUIRED)
 find_package(SUITESPARSE REQUIRED)
 find_package(G2O REQUIRED)
+
+# Eigen3 FindScript Backward compatibility (ubuntu saucy)
+# Since FindEigen.cmake is deprecated starting from jade.
+if (EXISTS "FindEigen3.cmake")
+  find_package(Eigen3 REQUIRED)
+  set(Eigen_INCLUDE_DIRS ${Eigen3_INCLUDE_DIRS})
+elseif (EXISTS "FindEigen.cmake")
+  find_package(Eigen REQUIRED)
+elseif (EXISTS "FindEigen.cmake")
+  message(WARNING "No findEigen cmake script found. You must provde one of them,
+  e.g. by adding it to ${PROJECT_SOURCE_DIR}/cmake_modules.")
+endif (EXISTS "FindEigen3.cmake")
 
 set(EXTERNAL_INCLUDE_DIRS ${Eigen_INCLUDE_DIRS} ${SUITESPARSE_INCLUDE_DIRS} ${G2O_INCLUDE_DIR})
 set(EXTERNAL_LIBS ${SUITESPARSE_LIBRARIES} ${G2O_LIBRARIES})
@@ -83,11 +96,10 @@ endif()
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  ObstacleMsg.msg
+)
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -104,10 +116,10 @@ endif()
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   geometry_msgs#   nav_msgs#   std_msgs#   std_msgs#   visualization_msgs
-# )
+generate_messages(
+   DEPENDENCIES
+   geometry_msgs std_msgs
+)
 
 #add dynamic reconfigure api
 #find_package(catkin REQUIRED dynamic_reconfigure)
@@ -134,12 +146,14 @@ catkin_package(
 	dynamic_reconfigure
 	geometry_msgs
 	interactive_markers
+	message_runtime
 	nav_core
 	nav_msgs
 	pluginlib
 	roscpp
 	std_msgs
 	tf
+	tf_conversions
 	visualization_msgs
   DEPENDS Eigen3 SuiteSparse G2O
 )
@@ -171,6 +185,8 @@ add_library(teb_local_planner
 
 # Dynamic reconfigure: make sure configure headers are built before any node using them
 add_dependencies(teb_local_planner ${PROJECT_NAME}_gencfg)
+# Generate messages before compiling the lib
+add_dependencies(teb_local_planner ${PROJECT_NAME}_generate_messages_cpp)
 
 target_link_libraries(teb_local_planner
    ${EXTERNAL_LIBS}
