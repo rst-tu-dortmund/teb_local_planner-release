@@ -71,7 +71,7 @@ public:
     double teb_autosize; //!< Enable automatic resizing of the trajectory w.r.t to the temporal resolution (recommended)
     double dt_ref; //!< Desired temporal resolution of the trajectory (should be in the magniture of the underlying control rate)
     double dt_hysteresis; //!< Hysteresis for automatic resizing depending on the current temporal resolution (dt): usually 10% of dt_ref
-    double global_plan_overwrite_orientation; //!< Overwrite orientation of local subgoals provided by the global planner
+    bool global_plan_overwrite_orientation; //!< Overwrite orientation of local subgoals provided by the global planner
     double force_reinit_new_goal_dist; //!< Reinitialize the trajectory if a previous goal is updated with a seperation of more than the specified value in meters (skip hot-starting)
   } trajectory; //!< Trajectory related parameters
     
@@ -88,8 +88,8 @@ public:
   //! Goal tolerance related parameters
   struct GoalTolerance
   {
-    double yaw_goal_tolerance; //!< Allowed final euclidean distance to the goal position
-    double xy_goal_tolerance; //!< Allowed final orientation error to the goal orientation
+    double yaw_goal_tolerance; //!< Allowed final orientation error
+    double xy_goal_tolerance; //!< Allowed final euclidean distance to the goal position
     double free_goal_vel; //!< "Allow the robot's velocity to be nonzero (usally max_vel) for planning purposes
   } goal_tolerance; //!< Goal tolerance related parameters
 
@@ -115,7 +115,7 @@ public:
     bool optimization_verbose; //!< Print verbose information
     
     double penalty_scale; //!< Lower values increase the penalty cost for hard-constraint approximations (do not choose too low: no satisfaction of constraints, or too high: bad matrix conditions)
-    double penalty_epsilon; //!< Add a small safty margin to penalty functions for hard-constraint approximations
+    double penalty_epsilon; //!< Add a small safety margin to penalty functions for hard-constraint approximations
     
     double weight_max_vel_x; //!< Optimization weight for satisfying the maximum allowed translational velocity
     double weight_max_vel_theta; //!< Optimization weight for satisfying the maximum allowed angular velocity
@@ -124,9 +124,9 @@ public:
     double weight_kinematics_nh; //!< Optimization weight for satisfying the non-holonomic kinematics
     double weight_kinematics_forward_drive; //!< Optimization weight for forcing the robot to choose only forward directions (positive transl. velocities)
     double weight_optimaltime; //!< Optimization weight for contracting the trajectory w.r.t transition time
-    double weight_point_obstacle; //!< Optimization weight for satisfying a minimum seperation from point obstacles
-    double weight_poly_obstacle; //!< Optimization weight for satisfying a minimum seperation from polygon obstacles
-    double weight_dynamic_obstacle; //!< Optimization weight for satisfying a minimum seperation from dynamic obstacles
+    double weight_point_obstacle; //!< Optimization weight for satisfying a minimum separation from point obstacles
+    double weight_poly_obstacle; //!< Optimization weight for satisfying a minimum separation from polygon obstacles
+    double weight_dynamic_obstacle; //!< Optimization weight for satisfying a minimum separation from dynamic obstacles
     bool alternative_time_cost; //!< Not in use yet...
     
   } optim; //!< Optimization related parameters
@@ -134,15 +134,15 @@ public:
   
   struct HomotopyClasses
   {
-    bool enable_homotopy_class_planning; //!< Activate homotopy class planning (Requires much more resources that simple planning, since multiple trajectory are optimized at once).
+    bool enable_homotopy_class_planning; //!< Activate homotopy class planning (Requires much more resources that simple planning, since multiple trajectories are optimized at once).
     bool enable_multithreading; //!< Activate multiple threading for planning multiple trajectories in parallel.
-    bool simple_exploration; //!< If true, the homotopies are explored usign a simple left-right approach (pass each obstacle on the left or right side) for path generation, otherwise sample possible roadmaps randomly in a specified region between start and goal.
+    bool simple_exploration; //!< If true, distinctive trajectories are explored using a simple left-right approach (pass each obstacle on the left or right side) for path generation, otherwise sample possible roadmaps randomly in a specified region between start and goal.
     int max_number_classes; //!< Specify the maximum number of allowed alternative homotopy classes (limits computational effort)
     
     int roadmap_graph_no_samples; //! < Specify the number of samples generated for creating the roadmap graph, if simple_exploration is turend off.
-    double roadmap_graph_area_width; //!< Specify the width of the area in which sampled will be generated between start and goal [m] (the height equals the start-goal distance).
+    double roadmap_graph_area_width; //!< Random keypoints/waypoints are sampled in a rectangular region between start and goal. Specify the width of that region in meters.
     double h_signature_prescaler; //!< Scale number of obstacle value in order to allow huge number of obstacles. Do not choose it extremly low, otherwise obstacles cannot be distinguished from each other (0.2<H<=1).
-    double h_signature_threshold; //!< Two h-signuteres are assumed to be equal, if both the difference of real parts and complex parts are below the specified threshold.
+    double h_signature_threshold; //!< Two h-signatures are assumed to be equal, if both the difference of real parts and complex parts are below the specified threshold.
     
     double obstacle_keypoint_offset; //!< If simple_exploration is turned on, this parameter determines the distance on the left and right side of the obstacle at which a new keypoint will be cretead (in addition to min_obstacle_dist).
     double obstacle_heading_threshold; //!< Specify the value of the scalar product between obstacle heading and goal heading in order to take them (obstacles) into account for exploration.
@@ -234,7 +234,7 @@ public:
     hcp.roadmap_graph_no_samples = 15;
     hcp.roadmap_graph_area_width = 6; // [m]
     hcp.h_signature_prescaler = 1;
-    hcp.h_signature_threshold = 0.1;
+    hcp.h_signature_threshold = 0.01;
     
     hcp.visualize_hc_graph = false;
 
