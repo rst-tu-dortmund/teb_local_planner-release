@@ -1,0 +1,59 @@
+ros-jade-teb-local-planner (0.1.8-0vivid) vivid; urgency=high
+
+  * Custom obstacles can included via publishing dedicated messages
+  * Goal-reached-condition also checks orientation error (desired yaw) now
+  * Numerical improvements of the h-signature calculation
+  * Minor bugfixes
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Sun, 07 Jun 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.7-0vivid) vivid; urgency=high
+
+  * Finally fixed saucy compilation issue by retaining compatiblity to newer distros
+    (my "new" 13.10 VM helps me to stop spamming new releases for testing).
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Thu, 21 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.6-0vivid) vivid; urgency=high
+
+  * Fixed compilation errors on ubuntu saucy caused by different FindEigen.cmake scripts.
+    I am not able to test releasing on saucy, forcing me to release again and again. Sorry.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Thu, 21 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.5-0vivid) vivid; urgency=high
+
+  * Added possibility to dynamically change parameters of test_optim_node using dynamic reconfigure.
+  * Fixed a wrong default-min-max tuple in the dynamic reconfigure config.
+  * Useful config and launch files are now added to cmake install.
+  * Added install target for the test_optim_node executable.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Wed, 20 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.4-0vivid) vivid; urgency=high
+
+  * Fixed compilation errors on ROS Jade
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 19 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.3-0vivid) vivid; urgency=high
+
+  * Fixed compilation errors on ubuntu saucy
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 19 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.2-0vivid) vivid; urgency=high
+
+  * Removed unused include that could break compilation.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Mon, 18 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.1-0vivid) vivid; urgency=high
+
+  * All files added to the indigo-devel branch
+  * Initial commit
+  * Contributors: Christoph Rösmann
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Mon, 18 May 2015 22:00:00 -0000
+
+
