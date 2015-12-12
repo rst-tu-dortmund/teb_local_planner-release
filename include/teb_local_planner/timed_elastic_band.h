@@ -321,12 +321,26 @@ public:
    * @param index element position inside the internal PoseSequence
    */
   void deletePose(unsigned int index);
+  
+  /**
+   * @brief Delete multiple (\c number) poses starting at pos. \c index in the pose sequence
+   * @param index first element position inside the internal PoseSequence
+   * @param number number of elements that should be deleted
+   */
+  void deletePoses(unsigned int index, unsigned int number);
 
   /**
    * @brief Delete pose at pos. \c index in the timediff sequence
    * @param index element position inside the internal TimeDiffSequence
    */
   void deleteTimeDiff(unsigned int index);
+	
+  /**
+   * @brief Delete multiple (\c number) time differences starting at pos. \c index in the timediff sequence
+   * @param index first element position inside the internal TimeDiffSequence
+   * @param number number of elements that should be deleted
+   */
+  void deleteTimeDiffs(unsigned int index, unsigned int number);
   
   //@}
   
@@ -348,9 +362,10 @@ public:
    * @param goal PoseSE2 defining the goal of the trajectory (final pose)
    * @param diststep euclidian distance between two consecutive poses
    * @param timestep intialization for the timediff between two consecutive poses
+	 * @param min_samples Minimum number of samples that should be initialized at least
    * @return true if everything was fine, false otherwise
    */
-  bool initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep=0, double timestep=1);
+  bool initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep=0, double timestep=1, int min_samples = 3);
   
   
   /**
@@ -380,6 +395,7 @@ public:
    * @param max_acc_y specify to satisfy a maxmimum angular acceleration and decceleration (optional)
    * @param start_orientation Orientation of the first pose of the trajectory (optional, otherwise use goal heading)
    * @param goal_orientation Orientation of the last pose of the trajectory (optional, otherwise use goal heading)
+	 * @param min_samples Minimum number of samples that should be initialized at least
    * @tparam BidirIter Bidirectional iterator type
    * @tparam Fun unyary function that transforms the dereferenced iterator into an Eigen::Vector2d
    * @return true if everything was fine, false otherwise
@@ -388,7 +404,7 @@ public:
   template<typename BidirIter, typename Fun>
   bool initTEBtoGoal(BidirIter path_start, BidirIter path_end, Fun fun_position, double max_vel_x, double max_vel_theta,
 		      boost::optional<double> max_acc_x, boost::optional<double> max_acc_theta,
-		      boost::optional<double> start_orientation, boost::optional<double> goal_orientation);  
+		      boost::optional<double> start_orientation, boost::optional<double> goal_orientation, int min_samples = 3);  
   
   /**
    * @brief Initialize a trajectory from a reference pose sequence (positions and orientations).
@@ -401,9 +417,10 @@ public:
    * @param dt specify a uniform time difference between two consecutive poses
    * @param estimate_orient if \c true, calculate orientation using the straight line distance vector between consecutive poses
    *                        (only copy start and goal orientation; recommended if no orientation data is available).
+	 * @param min_samples Minimum number of samples that should be initialized at least
    * @return true if everything was fine, false otherwise
    */
-  bool initTEBtoGoal(const std::vector<geometry_msgs::PoseStamped>& plan, double dt, bool estimate_orient=false);
+  bool initTEBtoGoal(const std::vector<geometry_msgs::PoseStamped>& plan, double dt, bool estimate_orient=false, int min_samples = 3);
   
   //@}
   
@@ -427,10 +444,11 @@ public:
    * @param new_start New start pose (optional)
    * @param new_goal New goal pose (optional)
    * @param max_goal_separation Maximum allowed distance between old and new goal, otherwise return \c false
+   * @param min_samples Specify the minimum number of samples that should at least remain in the trajectory
    * @return \c false if the goal point is too far away to update the goal (see max_goal_separation)
    */  
   bool updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, 
-			  boost::optional<const PoseSE2&> new_goal, double max_goal_separation = 1.0);
+			  boost::optional<const PoseSE2&> new_goal, double max_goal_separation = 1.0, int min_samples = 3);
   
   
   /**
@@ -457,8 +475,9 @@ public:
    * Each call only one new sample (pose-dt-pair) is inserted or removed.
    * @param dt_ref reference temporal resolution
    * @param dt_hysteresis hysteresis to avoid oscillations
+	 * @param min_samples minimum number of samples that should be remain in the trajectory after resizing
    */    
-  void autoResize(double dt_ref, double dt_hysteresis);
+  void autoResize(double dt_ref, double dt_hysteresis, int min_samples = 3);
   
   
   /**
