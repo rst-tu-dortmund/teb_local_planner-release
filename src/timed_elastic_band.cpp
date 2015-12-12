@@ -125,7 +125,14 @@ void TimedElasticBand::deletePose(unsigned int index)
   ROS_ASSERT(index<pose_vec_.size());
   delete pose_vec_.at(index);
   pose_vec_.erase(pose_vec_.begin()+index);
-  return ;
+}
+
+void TimedElasticBand::deletePoses(unsigned int index, unsigned int number)
+{
+	ROS_ASSERT(index+number<=pose_vec_.size());
+	for (int i = index; i<index+number; ++i)
+		delete pose_vec_.at(i);
+	pose_vec_.erase(pose_vec_.begin()+index, pose_vec_.begin()+index+number);
 }
 
 void TimedElasticBand::deleteTimeDiff(unsigned int index)
@@ -133,35 +140,38 @@ void TimedElasticBand::deleteTimeDiff(unsigned int index)
   ROS_ASSERT(index<timediff_vec_.size());
   delete timediff_vec_.at(index);
   timediff_vec_.erase(timediff_vec_.begin()+index);
-  return;
+}
+
+void TimedElasticBand::deleteTimeDiffs(unsigned int index, unsigned int number)
+{
+	ROS_ASSERT(index+number<=timediff_vec_.size());
+	for (int i = index; i<index+number; ++i)
+		delete timediff_vec_.at(i);
+	timediff_vec_.erase(timediff_vec_.begin()+index, timediff_vec_.begin()+index+number);
 }
 
 inline void TimedElasticBand::insertPose(unsigned int index, const PoseSE2& pose)
 {
   VertexPose* pose_vertex = new VertexPose(pose);
   pose_vec_.insert(pose_vec_.begin()+index, pose_vertex);
-  return;
 }
 
 inline void TimedElasticBand::insertPose(unsigned int index, const Eigen::Ref<const Eigen::Vector2d>& position, double theta)
 {
   VertexPose* pose_vertex = new VertexPose(position, theta);
   pose_vec_.insert(pose_vec_.begin()+index, pose_vertex);
-  return;
 }
 
 inline void TimedElasticBand::insertPose(unsigned int index, double x, double y, double theta)
 {
   VertexPose* pose_vertex = new VertexPose(x, y, theta);
   pose_vec_.insert(pose_vec_.begin()+index, pose_vertex);
-  return;
 }
 
 inline void TimedElasticBand::insertTimeDiff(unsigned int index, double dt)
 {
   VertexTimeDiff* timediff_vertex = new VertexTimeDiff(dt);
   timediff_vec_.insert(timediff_vec_.begin()+index, timediff_vertex);
-  return;
 }
 
 
@@ -181,18 +191,16 @@ void TimedElasticBand::setPoseVertexFixed(unsigned int index, bool status)
 {
   ROS_ASSERT(index<sizePoses());
   pose_vec_.at(index)->setFixed(status);   
-  return;  
 }
 
 void TimedElasticBand::setTimeDiffVertexFixed(unsigned int index, bool status)
 {
   ROS_ASSERT(index<sizeTimeDiffs());
   timediff_vec_.at(index)->setFixed(status);
-  return;
 }
 
 
-void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis)
+void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_samples)
 {
   /// iterate through all TEB states only once and add/remove states!
   for(unsigned int i=0; i < sizeTimeDiffs(); i++) // TimeDiff connects Point(i) with Point(i+1)
@@ -208,15 +216,15 @@ void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis)
       insertTimeDiff(i+1,newtime);
     }
     
-    else if(TimeDiff(i) < dt_ref - dt_hysteresis  && sizeTimeDiffs()>5) // only remove samples if size is smaller than 5.
+    else if(TimeDiff(i) < dt_ref - dt_hysteresis  && sizeTimeDiffs()>min_samples) // only remove samples if size is smaller than 5.
     {
       ROS_DEBUG("teb_local_planner: autoResize() deleting bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
       
       if(i < (sizeTimeDiffs()-1))
       {
-	TimeDiff(i+1) = TimeDiff(i+1) + TimeDiff(i);
-	deleteTimeDiff(i);
-	deletePose(i+1);
+				TimeDiff(i+1) = TimeDiff(i+1) + TimeDiff(i);
+				deleteTimeDiff(i);
+				deletePose(i+1);
       }
     }
   }
@@ -234,7 +242,7 @@ double TimedElasticBand::getSumOfAllTimeDiffs() const
   return time;
 }
 
-bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep, double timestep)
+bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep, double timestep, int min_samples)
 {
   if (!isInit())
   {   
@@ -254,11 +262,25 @@ bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, 
       
       for (unsigned int i=1; i<=no_steps; i++) // start with 1! starting point had index 0
       {
-	if (i==no_steps && no_steps_d==(float) no_steps) break; // if last conf (depending on stepsize) is equal to goal conf -> leave loop
-	addPoseAndTimeDiff(start.x()+i*dx,start.y()+i*dy,dir_to_goal,timestep);
+				if (i==no_steps && no_steps_d==(float) no_steps) 
+					break; // if last conf (depending on stepsize) is equal to goal conf -> leave loop
+					addPoseAndTimeDiff(start.x()+i*dx,start.y()+i*dy,dir_to_goal,timestep);
       }
 
     }
+    
+    // if number of samples is not larger than min_samples, insert manually
+    if ( (int)sizePoses() < min_samples-1 )
+		{
+			ROS_DEBUG("initTEBtoGoal(): number of generated samples is less than specified by min_samples. Forcing the insertion of more samples...");
+			while ((int)sizePoses() < min_samples-1) // subtract goal point that will be added later
+			{
+				// simple strategy: interpolate between the current pose and the goal
+				addPoseAndTimeDiff( PoseSE2::average(BackPose(), goal), timestep ); // let the optimier correct the timestep (TODO: better initialization	
+			}
+		}
+		
+		// add goal
     addPoseAndTimeDiff(goal,timestep); // add goal point
     setPoseVertexFixed(sizePoses()-1,true); // GoalConf is a fixed constraint during optimization	
   }
@@ -272,7 +294,7 @@ bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, 
 }
 
 
-bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStamped>& plan, double dt, bool estimate_orient)
+bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStamped>& plan, double dt, bool estimate_orient, int min_samples)
 {
   
   if (!isInit())
@@ -294,10 +316,24 @@ bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStampe
         {
             yaw = tf::getYaw(plan[i].pose.orientation);
         }
-	addPoseAndTimeDiff(plan[i].pose.position.x, plan[i].pose.position.y, yaw, dt);
+				addPoseAndTimeDiff(plan[i].pose.position.x, plan[i].pose.position.y, yaw, dt);
     }
+    
+    PoseSE2 goal(plan.back().pose.position.x, plan.back().pose.position.y, tf::getYaw(plan.back().pose.orientation));
+    
+    // if number of samples is not larger than min_samples, insert manually
+    if ( (int)sizePoses() < min_samples-1 )
+		{
+			ROS_DEBUG("initTEBtoGoal(): number of generated samples is less than specified by min_samples. Forcing the insertion of more samples...");
+			while ((int)sizePoses() < min_samples-1) // subtract goal point that will be added later
+			{
+				// simple strategy: interpolate between the current pose and the goal
+				addPoseAndTimeDiff( PoseSE2::average(BackPose(), goal), dt ); // let the optimier correct the timestep (TODO: better initialization	
+			}
+		}
+    
     // Now add final state with given orientation
-    addPoseAndTimeDiff(plan.back().pose.position.x, plan.back().pose.position.y, tf::getYaw(plan.back().pose.orientation), dt);
+    addPoseAndTimeDiff(goal, dt);
     setPoseVertexFixed(sizePoses()-1,true); // GoalConf is a fixed constraint during optimization
   }
   else // size!=0
@@ -354,14 +390,14 @@ bool TimedElasticBand::detectDetoursBackwards(double threshold) const
     Eigen::Vector2d orient_vector(cos( Pose(i).theta() ), sin( Pose(i).theta() ) );
     if (orient_vector.dot(d_start_goal) < threshold)
     {	
-      ROS_DEBUG("detectDetoursBackwards() - mark TEB for delete: start-orientation vs startgoal-vec");
+      ROS_DEBUG("detectDetoursBackwards() - mark TEB for deletion: start-orientation vs startgoal-vec");
       return true; // backward direction found
     }
   }
   
   /// check if upcoming configuration (next index) ist pushed behind the start (e.g. due to obstacles)
   // TODO: maybe we need a small hysteresis?
-  for (unsigned int i=0;i<2;++i) // check only a few upcoming
+/*  for (unsigned int i=0;i<2;++i) // check only a few upcoming
   {
     if (i+1 >= sizePoses()) break;
     Eigen::Vector2d start2conf = Pose(i+1).position() - Pose(0).position();
@@ -369,41 +405,52 @@ bool TimedElasticBand::detectDetoursBackwards(double threshold) const
     start2conf = start2conf/dist; // normalize -> we don't use start2conf.normalize() since we want to use dist later
     if (start2conf.dot(d_start_goal) < threshold && dist>0.01) // skip very small displacements
     {
-      ROS_DEBUG("detectDetoursBackwards() - mark TEB for delete: curvature look-ahead relative to startconf");
+      ROS_DEBUG("detectDetoursBackwards() - mark TEB for deletion: curvature look-ahead relative to startconf");
       return true;
     }
-  }	
+  }*/	
   return false;
 }
 
 
 
 
-bool TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, boost::optional<const PoseSE2&> new_goal, double max_goal_separation)
+bool TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, boost::optional<const PoseSE2&> new_goal, double max_goal_separation, int min_samples)
 {
   // first and simple approach: change only start confs (and virtual start conf for inital velocity)
   // TEST if optimizer can handle this "hard" placement
 
   if (new_start)
   {
-    Pose(0) = *new_start;
-    
-    // delete bandpoints which are behind the new_start (in the past) to facilitate optimization process
-    Eigen::Vector2d start2goal;
-    if (new_goal) start2goal =  new_goal->position() - new_start->position();
-    else start2goal = BackPose().position() - new_start->position();
-    for (unsigned int i=1; i < sizePoses(); i++) // start already applied
-    {
-      Eigen::Vector2d start2conf = Pose(i).position() - new_start->position();
-      if(start2goal.dot(start2conf)<=0)
-      {
-	      ROS_DEBUG("updateAndPruneTEB() - Bandpoint in the past detected. Deleting %u ...",i);
-	      // setTimeDiff(i,TimeDiff(i-1)+TimeDiff(i));
-	      deleteTimeDiff(i-1);
-	      deletePose(i);
-      }
-      else break;
-    }
+    // find nearest state (using l2-norm) in order to prune the trajectory
+		// (remove already passed states)
+		double dist_cache = (new_start->position()- Pose(0).position()).norm();
+		double dist;
+		int lookahead = std::min<int>( int(sizePoses())-min_samples, 10); // satisfy min_samples, otherwise max 10 samples
+
+		int nearest_idx = 0;
+		for (int i = 1; i<=lookahead; ++i)
+		{
+			dist = (new_start->position()- Pose(i).position()).norm();
+			if (dist<dist_cache)
+			{
+				dist_cache = dist;
+				nearest_idx = i;
+			}
+			else break;
+		}
+		
+		// prune trajectory at the beginning (and extrapolate sequences at the end if the horizon is fixed)
+		if (nearest_idx>0)
+		{
+			// nearest_idx is equal to the number of samples to be removed (since it counts from 0 ;-) )
+			// WARNING delete starting at pose 1, and overwrite the original pose(0) wiht new_start, since pose(0) is fixed during optimization!
+			deletePoses(1, nearest_idx);  // delete first states such that the closest state is the new first one
+			deleteTimeDiffs(1, nearest_idx); // delete corresponding time differences
+		}
+		
+		// update start
+		Pose(0) = *new_start;
   }
   
   if (new_goal)
