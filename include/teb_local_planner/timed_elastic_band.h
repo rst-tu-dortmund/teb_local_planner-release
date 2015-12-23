@@ -360,7 +360,7 @@ public:
    * the resulting trajectory contains the start and goal pose only.
    * @param start PoseSE2 defining the start of the trajectory
    * @param goal PoseSE2 defining the goal of the trajectory (final pose)
-   * @param diststep euclidian distance between two consecutive poses
+   * @param diststep euclidian distance between two consecutive poses (if 0, no intermediate samples are inserted despite min_samples)
    * @param timestep intialization for the timediff between two consecutive poses
 	 * @param min_samples Minimum number of samples that should be initialized at least
    * @return true if everything was fine, false otherwise
@@ -519,7 +519,22 @@ public:
    * @return Index to the closest pose in the pose sequence
    */
   unsigned int findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_point) const;
-  
+
+  /**
+   * @brief Find the closest point on the trajectory w.r.t to a provided reference line.
+   * 
+   * This function can be useful to find the part of a trajectory that is close to an (line) obstacle.
+   * 
+   * @todo implement a more efficient version that first performs a coarse search.
+   * @todo implement a fast approximation that assumes only one local minima w.r.t to the distance:
+   *       Allows simple comparisons starting from the middle of the trajectory.
+   * 
+   * @param ref_line_start start of the reference line (2D position vector)
+	 * @param ref_line_start end of the reference line (2D position vector)
+   * @return Index to the closest pose in the pose sequence
+   */
+  unsigned int findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_line_start, const Eigen::Ref<const Eigen::Vector2d>& ref_line_end);
+
   /**
    * @brief Get the length of the internal pose sequence
    */
