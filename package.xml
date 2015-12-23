@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package>
   <name>teb_local_planner</name>
-  <version>0.1.11</version>
+  <version>0.2.0</version>
   <description>
 	The teb_local_planner package implements a plugin
 	to the base_local_planner of the 2D navigation stack.
@@ -23,6 +23,7 @@
 
   <build_depend>base_local_planner</build_depend>
   <build_depend>costmap_2d</build_depend>
+  <build_depend>costmap_converter</build_depend>
   <build_depend>cmake_modules</build_depend>
   <build_depend>dynamic_reconfigure</build_depend>
   <build_depend>geometry_msgs</build_depend>
@@ -40,6 +41,7 @@
 
   <run_depend>base_local_planner</run_depend>
   <run_depend>costmap_2d</run_depend>
+  <run_depend>costmap_converter</run_depend>
   <run_depend>dynamic_reconfigure</run_depend>
   <run_depend>geometry_msgs</run_depend>
   <run_depend>interactive_markers</run_depend>

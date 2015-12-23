@@ -69,6 +69,7 @@
 
 // costmap
 #include <costmap_2d/costmap_2d_ros.h>
+#include <costmap_converter/costmap_converter_interface.h>
 
 
 // dynamic reconfigure
@@ -142,13 +143,31 @@ public:
 protected:
 
   /**
-    * @brief Call this function to update the internal obstacle vector (e.g. with costmap obstacle cells)
+    * @brief Update internal obstacle vector based on occupied costmap cells
+    * @remarks All occupied cells will be added as point obstacles.
+    * @remarks All previous obstacles are cleared.
+    * @sa updateObstacleContainerWithCostmapConverter
     * @todo Include temporal coherence among obstacle msgs (id vector)
     * @todo Include properties for dynamic obstacles (e.g. using constant velocity model)
-    * @todo Add prefiltering for costmap obstacles
     */
-  void updateObstacleContainer();
+  void updateObstacleContainerWithCostmap();
   
+  /**
+   * @brief Update internal obstacle vector based on polygons provided by a costmap_converter plugin
+   * @remarks Requires a loaded costmap_converter plugin.
+   * @remarks All previous obstacles are cleared.
+   * @sa updateObstacleContainerWithCostmap
+   */
+  void updateObstacleContainerWithCostmapConverter();
+  
+  /**
+   * @brief Update internal obstacle vector based on custom messages received via subscriber
+   * @remarks All previous obstacles are NOT cleared. Call this method after other update methods.
+   * @sa updateObstacleContainerWithCostmap, updateObstacleContainerWithCostmapConverter
+   */
+  void updateObstacleContainerWithCustomObstacles();
+
+
   /**
     * @brief Callback for the dynamic_reconfigure node.
     * 
@@ -180,11 +199,10 @@ protected:
     * @param tf_plan_to_global (output) Transformation between the global plan and the global planning frame
     */
   bool transformGlobalPlan(const tf::TransformListener& tf, const std::vector<geometry_msgs::PoseStamped>& global_plan,
-		    const tf::Stamped<tf::Pose>& global_pose,  const costmap_2d::Costmap2D& costmap,
-		    const std::string& global_frame, std::vector<geometry_msgs::PoseStamped>& transformed_plan,
-		    unsigned int* current_goal_idx = NULL, tf::StampedTransform* tf_plan_to_global = NULL) const;
-  
-  
+                           const tf::Stamped<tf::Pose>& global_pose,  const costmap_2d::Costmap2D& costmap,
+                           const std::string& global_frame, std::vector<geometry_msgs::PoseStamped>& transformed_plan,
+                           unsigned int* current_goal_idx = NULL, tf::StampedTransform* tf_plan_to_global = NULL) const;
+    
   /**
     * @brief Estimate the orientation of a pose from the global_plan that is treated as a local goal for the local planner.
     * 
@@ -201,9 +219,9 @@ protected:
     * @return orientation (yaw-angle) estimate
     */
   double estimateLocalGoalOrientation(const std::vector<geometry_msgs::PoseStamped>& global_plan, const tf::Stamped<tf::Pose>& local_goal,
-		      int current_goal_idx, const tf::StampedTransform& tf_plan_to_global, int moving_average_length=3) const;
-		      
-		      
+                                      int current_goal_idx, const tf::StampedTransform& tf_plan_to_global, int moving_average_length=3) const;
+        
+        
   /**
    * @brief Saturate the translational and angular velocity to given limits.
    * 
@@ -220,11 +238,11 @@ protected:
   
   
   // Definition of member variables
-	
+
   // external objects (store weak pointers)
   costmap_2d::Costmap2DROS* costmap_ros_; //!< Pointer to the costmap ros wrapper, received from the navigation stack
   costmap_2d::Costmap2D* costmap_; //!< Pointer to the 2d costmap (obtained from the costmap ros wrapper)
-
+  
   // internal objects (memory management owned)
   PlannerInterfacePtr planner_; //!< Instance of the underlying optimal planner class
   ObstContainer obstacles_; //!< Obstacle vector that should be considered during local trajectory optimization
@@ -237,6 +255,9 @@ protected:
   
   base_local_planner::OdometryHelperRos odom_helper_; //!< Provides an interface to receive the current velocity from the robot
   
+  pluginlib::ClassLoader<costmap_converter::BaseCostmapToPolygons> costmap_converter_loader_; //!< Load costmap converter plugins at runtime
+  boost::shared_ptr<costmap_converter::BaseCostmapToPolygons> costmap_converter_; //!< Store the current costmap_converter  
+
   dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig>* dynamic_recfg_; //!< Dynamic reconfigure server to allow config modifications at runtime
   ros::Subscriber custom_obst_sub_; //!< Subscriber for custom obstacles received via a ObstacleMsg.
   boost::mutex custom_obst_mutex_; //!< Mutex that locks the obstacle array (multi-threaded)
