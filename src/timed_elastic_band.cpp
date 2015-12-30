@@ -347,7 +347,7 @@ bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStampe
 }
 
 
-unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_point) const
+unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_point, double* distance) const
 {
   std::vector<double> dist_vec; // TODO: improve! efficiency
   dist_vec.reserve(sizePoses());
@@ -373,11 +373,13 @@ unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const 
       index_min = i;
     }
   }
+  if (distance)
+    *distance = last_value;
   return index_min; // return index, because it's equal to the vertex, which represents this bandpoint
 }
 
 
-unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_line_start, const Eigen::Ref<const Eigen::Vector2d>& ref_line_end)
+unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_line_start, const Eigen::Ref<const Eigen::Vector2d>& ref_line_end, double* distance) const
 {
   std::vector<double> dist_vec; // TODO: improve! efficiency
   dist_vec.reserve(sizePoses());
@@ -403,12 +405,71 @@ unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const 
       index_min = i;
     }
   }
+  if (distance)
+    *distance = last_value;
+  return index_min; // return index, because it's equal to the vertex, which represents this bandpoint
+}
+
+unsigned int TimedElasticBand::findClosestTrajectoryPose(const PolygonObstacle::VertexContainer& vertices, double* distance) const
+{
+  if (vertices.empty())
+    return 0;
+  else if (vertices.size() == 1)
+    return findClosestTrajectoryPose(vertices.front());
+  else if (vertices.size() == 2)
+    return findClosestTrajectoryPose(vertices.front(), vertices.back());
+  
+  std::vector<double> dist_vec; // TODO: improve! efficiency
+  dist_vec.reserve(sizePoses());
+  
+  // calc distances  
+  for (unsigned int i = 0; i < sizePoses(); i++)
+  {
+    Eigen::Vector2d point = Pose(i).position();
+    double diff = HUGE_VAL;
+    for (int j = 0; j < (int) vertices.size()-1; ++j)
+    {
+       diff = std::min(diff, Obstacle::DistanceFromLineSegment(point, vertices[j], vertices[j+1]));
+    }
+    diff = std::min(diff, Obstacle::DistanceFromLineSegment(point, vertices.back(), vertices.front()));
+    dist_vec.push_back(diff);
+  }
+
+
+  // find minimum
+  unsigned int index_min = 0;
+
+  double last_value = dist_vec.at(0);
+  for (unsigned int i=1; i < dist_vec.size(); i++)
+  {
+    if (dist_vec.at(i) < last_value)
+    {
+      last_value = dist_vec.at(i);
+      index_min = i;
+    }
+  }
+  if (distance)
+    *distance = last_value;
   return index_min; // return index, because it's equal to the vertex, which represents this bandpoint
 }
 
 
-
-
+unsigned int TimedElasticBand::findClosestTrajectoryPose(const Obstacle& obstacle, double* distance) const
+{
+  const PointObstacle* pobst = dynamic_cast<const PointObstacle*>(&obstacle);
+  if (pobst)
+    return findClosestTrajectoryPose(pobst->position(), distance);
+  
+  const LineObstacle* lobst = dynamic_cast<const LineObstacle*>(&obstacle);
+  if (lobst)
+    return findClosestTrajectoryPose(lobst->start(), lobst->end(), distance);
+  
+  const PolygonObstacle* polyobst = dynamic_cast<const PolygonObstacle*>(&obstacle);
+  if (polyobst)
+    return findClosestTrajectoryPose(polyobst->vertices(), distance);
+  
+  return findClosestTrajectoryPose(obstacle.getCentroid(), distance);  
+}
 
 
 
@@ -451,13 +512,13 @@ bool TimedElasticBand::detectDetoursBackwards(double threshold) const
 
 
 
-bool TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, boost::optional<const PoseSE2&> new_goal, double max_goal_separation, int min_samples)
+void TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, boost::optional<const PoseSE2&> new_goal, int min_samples)
 {
   // first and simple approach: change only start confs (and virtual start conf for inital velocity)
   // TEST if optimizer can handle this "hard" placement
 
-  if (new_start)
-  {
+  if (new_start && sizePoses()>0)
+  {    
     // find nearest state (using l2-norm) in order to prune the trajectory
     // (remove already passed states)
     double dist_cache = (new_start->position()- Pose(0).position()).norm();
@@ -489,15 +550,10 @@ bool TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_sta
     Pose(0) = *new_start;
   }
   
-  if (new_goal)
+  if (new_goal && sizePoses()>0)
   {
-    unsigned int teb_size = sizePoses();
-    if((BackPose().position()-new_goal->position()).squaredNorm() > max_goal_separation*max_goal_separation) return false;
-    
     BackPose() = *new_goal;
   }
-
-  return true;
 };
 
 
