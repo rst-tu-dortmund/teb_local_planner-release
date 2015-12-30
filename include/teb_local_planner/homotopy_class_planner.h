@@ -158,7 +158,7 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized
    * according to an initial reference plan (given as a container of poses).
    * @warning The current implementation extracts only the start and goal pose and calls the overloaded plan()
-   * @param initial_plan vector of geometry_msgs::PoseStamped
+   * @param initial_plan vector of geometry_msgs::PoseStamped (must be valid until clearPlanner() is called!)
    * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x and angular.z are used)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
@@ -291,6 +291,18 @@ public:
   template<typename BidirIter, typename Fun>
   void addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation); 
   
+  /**
+   * @brief Add a new Teb to the internal trajectory container and initialize it with a simple straight line between a given start and goal
+   * @param start start pose
+   * @param goal goal pose
+   */
+  void addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal); 
+  
+    /**
+   * @brief Add a new Teb to the internal trajectory container and initialize it using a PoseStamped container
+   * @param initial_plan container of poses (start and goal orientation should be valid!)
+   */
+  void addAndInitNewTeb(const std::vector<geometry_msgs::PoseStamped>& initial_plan);
   
   /**
    * @brief Update TEBs with new pose, goal and current velocity.
@@ -326,7 +338,7 @@ public:
     * 
     * Clear all previously found H-signatures, paths, tebs and the hcgraph.
     */
-  void clearPlanner() {graph_.clear(); h_signatures_.clear(); tebs_.clear();}
+  void clearPlanner() {graph_.clear(); h_signatures_.clear(); tebs_.clear(); initial_plan_ = NULL;}
   
   
   /**
@@ -380,9 +392,9 @@ protected:
    * @param start Start pose from wich to start on (e.g. the current robot pose).
    * @param goal Goal pose to find paths to (e.g. the robot's goal).
    * @param dist_to_obst Allowed distance to obstacles: if not satisfying, the path will be rejected (note, this is not the distance used for optimization).
-   * @param limit_obstacle_heading Ignore obstacles that are outside a predefined range of view.
+   * @param obstacle_heading_threshold Value of the normalized scalar product between obstacle heading and goal heading in order to take them (obstacles) into account [0,1]
    */
-  void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst=0.3, bool limit_obstacle_heading=false);
+  void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold);
   
   /**
    * @brief Create a graph and sample points in the global frame that can be used to explore new possible paths between start and goal.
@@ -396,9 +408,10 @@ protected:
    * @param start Start pose from wich to start on (e.g. the current robot pose).
    * @param goal Goal pose to find paths to (e.g. the robot's goal).
    * @param dist_to_obst Allowed distance to obstacles: if not satisfying, the path will be rejected (note, this is not the distance used for optimization).
-   * @param limit_obstacle_heading Ignore obstacles that are outside a predefined range of view.
+   * @param no_samples number of random samples
+   * @param obstacle_heading_threshold Value of the normalized scalar product between obstacle heading and goal heading in order to take them (obstacles) into account [0,1]
    */  
-  void createProbRoadmapGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst=0.3, bool limit_obstacle_heading=false);
+  void createProbRoadmapGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, int no_samples, double obstacle_heading_threshold);
   
   
   /**
@@ -407,7 +420,7 @@ protected:
    * @param threshold Two h-signuteres are assumed to be equal, if both the difference of real parts and complex parts are below \c threshold.
    * @return \c true if the h-signature was added and no duplicate was found, \c false otherwise
    */    
-  bool addNewHSignatureIfNew(const std::complex<long double>& H, double threshold);
+  bool addHSignatureIfNew(const std::complex<long double>& H, double threshold);
 
  
   /**
@@ -449,6 +462,8 @@ protected:
   // internal objects (memory management owned)
   TebVisualizationPtr visualization_; //!< Instance of the visualization class (local/global plan, obstacles, ...)
   TebOptimalPlannerPtr best_teb_; //!< Store the current best teb.
+  
+  const std::vector<geometry_msgs::PoseStamped>* initial_plan_; //!< Store the initial plan if available for a better trajectory initialization
   
   TebOptPlannerContainer tebs_; //!< Container that stores multiple local teb planners (for alternative homotopy classes) and their corresponding costs
   
