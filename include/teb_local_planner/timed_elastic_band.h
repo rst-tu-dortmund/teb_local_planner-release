@@ -435,8 +435,6 @@ public:
    * The current simple implementation cuts of pieces of the trajectory that are already passed due to the new start. \n
    * Afterwards the start and goal pose are replaced by the new ones. The resulting discontinuity will not be smoothed.
    * The optimizer has to smooth the trajectory in TebOptimalPlanner. \n
-   * Before updating the goal, the method checks whether the new goal is too far away, in that case the function
-   * returns \c false such that the user can decide whether to stop planning or to reinitialize a new trajectory.
    * 
    * @todo Smooth the trajectory here and test the performance improvement of the optimization.
    * @todo Implement a updateAndPruneTEB based on a new reference path / pose sequence.
@@ -445,10 +443,8 @@ public:
    * @param new_goal New goal pose (optional)
    * @param max_goal_separation Maximum allowed distance between old and new goal, otherwise return \c false
    * @param min_samples Specify the minimum number of samples that should at least remain in the trajectory
-   * @return \c false if the goal point is too far away to update the goal (see max_goal_separation)
    */  
-  bool updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, 
-			  boost::optional<const PoseSE2&> new_goal, double max_goal_separation = 1.0, int min_samples = 3);
+  void updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, boost::optional<const PoseSE2&> new_goal, int min_samples = 3);
   
   
   /**
@@ -516,9 +512,10 @@ public:
    *       Allows simple comparisons starting from the middle of the trajectory.
    * 
    * @param ref_point reference point (2D position vector)
+   * @param[out] distance [optional] the resulting minimum distance
    * @return Index to the closest pose in the pose sequence
    */
-  unsigned int findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_point) const;
+  unsigned int findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_point, double* distance = NULL) const;
 
   /**
    * @brief Find the closest point on the trajectory w.r.t to a provided reference line.
@@ -531,10 +528,40 @@ public:
    * 
    * @param ref_line_start start of the reference line (2D position vector)
 	 * @param ref_line_start end of the reference line (2D position vector)
+   * @param[out] distance [optional] the resulting minimum distance
    * @return Index to the closest pose in the pose sequence
    */
-  unsigned int findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_line_start, const Eigen::Ref<const Eigen::Vector2d>& ref_line_end);
+  unsigned int findClosestTrajectoryPose(const Eigen::Ref<const Eigen::Vector2d>& ref_line_start, const Eigen::Ref<const Eigen::Vector2d>& ref_line_end, double* distance = NULL) const;
 
+  /**
+   * @brief Find the closest point on the trajectory w.r.t to a provided reference polygon.
+   * 
+   * This function can be useful to find the part of a trajectory that is close to an (polygon) obstacle.
+   * 
+   * @todo implement a more efficient version that first performs a coarse search.
+   * @todo implement a fast approximation that assumes only one local minima w.r.t to the distance:
+   *       Allows simple comparisons starting from the middle of the trajectory.
+   * 
+   * @param vertices vertex container containing Eigen::Vector2d points (the last and first point are connected)
+   * @param[out] distance [optional] the resulting minimum distance
+   * @return Index to the closest pose in the pose sequence
+   */
+  unsigned int findClosestTrajectoryPose(const PolygonObstacle::VertexContainer& vertices, double* distance = NULL) const;
+
+  /**
+   * @brief Find the closest point on the trajectory w.r.t to a provided obstacle type
+   * 
+   * This function can be useful to find the part of a trajectory that is close to an obstacle.
+   * The method is calculates appropriate distance metrics for point, line and polygon obstacles.
+   * For all unknown obstacles the centroid is used.
+   *
+   * @param obstacle Subclass of the Obstacle base class
+   * @param[out] distance [optional] the resulting minimum distance
+   * @return Index to the closest pose in the pose sequence
+   */
+  unsigned int findClosestTrajectoryPose(const Obstacle& obstacle, double* distance = NULL) const;
+  
+  
   /**
    * @brief Get the length of the internal pose sequence
    */
