@@ -111,7 +111,7 @@ public:
     * @param min_dist Minimum distance allowed to the obstacle to be collision/intersection free
     * @return \c true if given line intersects the region of the obstacle or if the minimum distance is lower than min_dist
     */
-  virtual bool checkLineIntersection(const Eigen::Vector2d& line_start, const Eigen::Vector2d& line_end, double min_dist) const = 0;
+  virtual bool checkLineIntersection(const Eigen::Vector2d& line_start, const Eigen::Vector2d& line_end, double min_dist=0) const = 0;
 
   /**
     * @brief Get the minimum euclidean distance to the obstacle
@@ -119,12 +119,13 @@ public:
     */
   virtual double getMinimumDistance(const Eigen::Vector2d& position) const = 0;
 
-  /**
-    * @brief Get the distance vector with the minimum norm to the obstacle
-    * @return The nearest distance vector
-    */
-  virtual Eigen::Vector2d getMinimumDistanceVec(const Eigen::Vector2d& position) const = 0;
 
+  /**
+   * @brief Get the closest point on the boundary of the obstacle w.r.t. a specified reference position
+   * @param position reference 2d position
+   * @return closest point on the obstacle boundary
+   */
+  virtual Eigen::Vector2d getClosestPoint(const Eigen::Vector2d& position) const = 0;
 
   //@}
 
@@ -188,6 +189,17 @@ public:
     */	
   static bool CheckLineSegmentsIntersection(const Eigen::Ref<const Eigen::Vector2d>& line1_start, const Eigen::Ref<const Eigen::Vector2d>& line1_end, 
 						    const Eigen::Ref<const Eigen::Vector2d>& line2_start, const Eigen::Ref<const Eigen::Vector2d>& line2_end, Eigen::Vector2d* intersection = NULL);
+  
+    /**
+    * @brief Helper function to calculate the smallest distance between two line segments
+    * @param line1_start 2D point representing the start of the first line segment
+    * @param line1_end 2D point representing the end of the first line segment
+    * @param line2_start 2D point representing the start of the second line segment
+    * @param line2_end 2D point representing the end of the second line segment
+    * @return smallest distance between both segments
+    */  
+  static double DistanceSegmentToSegment2d(const Eigen::Ref<const Eigen::Vector2d>& line1_start, const Eigen::Ref<const Eigen::Vector2d>& line1_end, 
+                  const Eigen::Ref<const Eigen::Vector2d>& line2_start, const Eigen::Ref<const Eigen::Vector2d>& line2_end);
 
 
   //@}
@@ -249,7 +261,7 @@ public:
   
   
   // implements checkLineIntersection() of the base class
-  virtual bool checkLineIntersection(const Eigen::Vector2d& line_start, const Eigen::Vector2d& line_end, double min_dist) const
+  virtual bool checkLineIntersection(const Eigen::Vector2d& line_start, const Eigen::Vector2d& line_end, double min_dist=0) const
   {   
       // Distance Line - Circle
       // refer to http://www.spieleprogrammierer.de/wiki/2D-Kollisionserkennung#Kollision_Kreis-Strecke
@@ -272,13 +284,12 @@ public:
   {
     return (position-pos_).norm();
   }
-  
+    
   // implements getMinimumDistanceVec() of the base class
-  virtual Eigen::Vector2d getMinimumDistanceVec(const Eigen::Vector2d& position) const
+  virtual Eigen::Vector2d getClosestPoint(const Eigen::Vector2d& position) const
   {
-    return position-pos_;
+    return pos_;
   }
-  
   
   // implements getCentroid() of the base class
   virtual const Eigen::Vector2d& getCentroid() const
@@ -367,18 +378,24 @@ public:
   }
   
   // implements checkLineIntersection() of the base class
-  virtual bool checkLineIntersection(const Eigen::Vector2d& line_start, const Eigen::Vector2d& line_end, double min_dist) const 
+  virtual bool checkLineIntersection(const Eigen::Vector2d& line_start, const Eigen::Vector2d& line_end, double min_dist=0) const 
   {
     return CheckLineSegmentsIntersection(line_start, line_end, start_, end_);
   }
 
   // implements getMinimumDistance() of the base class
-  virtual double getMinimumDistance(const Eigen::Vector2d& position) const;    
-  
-  
+  virtual double getMinimumDistance(const Eigen::Vector2d& position) const 
+  {
+    return DistanceFromLineSegment(position, start_, end_);
+  }
+
   // implements getMinimumDistanceVec() of the base class
-  virtual Eigen::Vector2d getMinimumDistanceVec(const Eigen::Vector2d& position) const;   
-  
+  virtual Eigen::Vector2d getClosestPoint(const Eigen::Vector2d& position) const
+  {
+    return ClosestPointOnLineSegment(position, start_, end_);
+  }
+
+
   
   // implements getCentroid() of the base class
   virtual const Eigen::Vector2d& getCentroid() const    
@@ -394,9 +411,9 @@ public:
   
   // Access or modify line
   const Eigen::Vector2d& start() const {return start_;}
-  Eigen::Vector2d& start() {return start_;}
+  void setStart(const Eigen::Ref<const Eigen::Vector2d>& start) {start_ = start; calcCentroid();}
   const Eigen::Vector2d& end() const {return end_;}
-  Eigen::Vector2d& end() {return end_;}
+  void setEnd(const Eigen::Ref<const Eigen::Vector2d>& end) {end_ = end; calcCentroid();}
   
 protected:
   void calcCentroid()	{	centroid_ = 0.5*(start_ + end_); }
@@ -417,7 +434,7 @@ public:
  * @brief Implements a polygon obstacle with an arbitrary number of vertices
  * @details If the polygon has only 2 vertices, than it is considered as a line,
  * 	    otherwise the polygon will always be closed (a connection between the first and the last vertex
- * 	    is automatically included).
+ * 	    is included automatically).
  */
 class PolygonObstacle : public Obstacle
 {
@@ -430,7 +447,9 @@ public:
     * @brief Default constructor of the polygon obstacle class
     */
   PolygonObstacle() : Obstacle(), finalized_(false)
-  {}
+  {
+    centroid_.setConstant(NAN);
+  }
   
   
   /* FIXME Not working at the moment due to the aligned allocator version of std::vector
@@ -449,7 +468,7 @@ public:
   {
       // line case
       if (noVertices()==2)
-	return getMinimumDistance(point) <= min_dist;
+        return getMinimumDistance(point) <= min_dist;
     
       // check if point is in the interior of the polygon
       // point in polygon test - raycasting (http://www.ecse.rpi.edu/Homepages/wrf/Research/Short_Notes/pnpoly.html)
@@ -458,9 +477,9 @@ public:
       bool c = false;
       for (i = 0, j = noVertices()-1; i < noVertices(); j = i++) 
       {
-	if ( ((vertices_.at(i).y()>point.y()) != (vertices_.at(j).y()>point.y())) &&
-	      (point.x() < (vertices_.at(j).x()-vertices_.at(i).x()) * (point.y()-vertices_.at(i).y()) / (vertices_.at(j).y()-vertices_.at(i).y()) + vertices_.at(i).x()) )
-		  c = !c;
+        if ( ((vertices_.at(i).y()>point.y()) != (vertices_.at(j).y()>point.y())) &&
+              (point.x() < (vertices_.at(j).x()-vertices_.at(i).x()) * (point.y()-vertices_.at(i).y()) / (vertices_.at(j).y()-vertices_.at(i).y()) + vertices_.at(i).x()) )
+            c = !c;
       }
       if (c>0) return true;
 
@@ -485,7 +504,7 @@ public:
   virtual double getMinimumDistance(const Eigen::Vector2d& position) const;
   
   // implements getMinimumDistanceVec() of the base class
-  virtual Eigen::Vector2d getMinimumDistanceVec(const Eigen::Vector2d& position) const;
+  virtual Eigen::Vector2d getClosestPoint(const Eigen::Vector2d& position) const;
   
   // implements getCentroid() of the base class
   virtual const Eigen::Vector2d& getCentroid() const
@@ -539,6 +558,7 @@ public:
     */
   void finalizePolygon()
   {
+    fixPolygonClosure();
     calcCentroid();
     finalized_ = true;
   }
@@ -553,9 +573,12 @@ public:
     */
   size_t noVertices() const {return vertices_.size();}
   
+  
   ///@}
       
 protected:
+  
+  void fixPolygonClosure(); //!< Check if the current polygon contains the first vertex twice (as start and end) and in that case erase the last redundant one.
 
   void calcCentroid(); //!< Compute the centroid of the polygon (called inside finalizePolygon())
 
