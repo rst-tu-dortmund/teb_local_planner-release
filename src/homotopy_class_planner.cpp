@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -139,13 +139,17 @@ bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const
   return true;
 } 
  
-Eigen::Vector2d HomotopyClassPlanner::getVelocityCommand() const
+bool HomotopyClassPlanner::getVelocityCommand(double& v, double& omega) const
 {
   TebOptimalPlannerConstPtr best_teb = bestTeb();
   if (!best_teb)
-    return Eigen::Vector2d::Zero();
+  {
+    v = 0;
+    omega = 0;
+    return false;
+  }
  
-  return best_teb->getVelocityCommand(); 
+  return best_teb->getVelocityCommand(v, omega); 
 }
 
 
@@ -162,10 +166,20 @@ void HomotopyClassPlanner::visualize()
     // Visualize active tebs as marker
     visualization_->publishTebContainer(tebs_);
     
-    // Visualize best teb
+    // Visualize best teb and feedback message if desired
     TebOptimalPlannerConstPtr best_teb = bestTeb();
     if (best_teb)
+    {
       visualization_->publishLocalPlanAndPoses(best_teb->teb());
+    
+      // feedback message
+      if (cfg_->trajectory.publish_feedback)
+      {
+        int best_idx = bestTebIdx();
+        if (best_idx>=0)
+          visualization_->publishFeedbackMessage(tebs_, (unsigned int) best_idx, *obstacles_);
+      }
+    }
   }
   else ROS_DEBUG("Ignoring HomotopyClassPlanner::visualize() call, since no visualization class was instantiated before.");
 }
@@ -709,7 +723,7 @@ TebOptimalPlannerPtr HomotopyClassPlanner::selectBestTeb()
 
   for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
   {
-    double teb_cost = it_teb->get()->getCurrentCost().sum(); // just sum up all cost components
+    double teb_cost = it_teb->get()->getCurrentCost();
 
     if (teb_cost < min_cost)
     {
@@ -720,21 +734,31 @@ TebOptimalPlannerPtr HomotopyClassPlanner::selectBestTeb()
   return best_teb_;
 } 
 
+int HomotopyClassPlanner::bestTebIdx() const
+{
+  if (tebs_.size() == 1)
+    return 0;
+    
+  if (!best_teb_)
+    return -1;
+  
+  int idx = 0;
+  for (TebOptPlannerContainer::const_iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb, ++idx)
+  {
+    if (it_teb->get() == best_teb_.get())
+      return idx;
+  }
+  return -1;  
+}
+
 bool HomotopyClassPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* costmap_model, const std::vector<geometry_msgs::Point>& footprint_spec,
 						double inscribed_radius, double circumscribed_radius, int look_ahead_idx)
 {
-  if (!best_teb_)
+  TebOptimalPlannerPtr best = bestTeb();
+  if (!best)
     return false;
   
-  if (look_ahead_idx < 0 || look_ahead_idx >= (int) best_teb_->teb().sizePoses())
-    look_ahead_idx = (int) best_teb_->teb().sizePoses()-1;
-  
-  for (unsigned int i=0; i <= look_ahead_idx; ++i)
-  {      
-    if ( costmap_model->footprintCost(best_teb_->teb().Pose(i).x(), best_teb_->teb().Pose(i).y(), best_teb_->teb().Pose(i).theta(), footprint_spec, inscribed_radius, circumscribed_radius) < 0 )
-      return false;
-  }
-  return true;
+  return best->isTrajectoryFeasible(costmap_model,footprint_spec, inscribed_radius, circumscribed_radius, look_ahead_idx);
 }
 
  

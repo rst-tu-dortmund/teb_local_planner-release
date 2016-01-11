@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -114,19 +114,28 @@ public:
     const VertexTimeDiff* dt2 = static_cast<const VertexTimeDiff*>(_vertices[4]);
 
     // VELOCITY & ACCELERATION
-
-    double vel1 = (pose2->position() - pose1->position()).norm() / dt1->dt();
-    double vel2 = (pose3->position() - pose2->position()).norm() / dt2->dt();
+    Eigen::Vector2d diff1 = pose2->position() - pose1->position();
+    Eigen::Vector2d diff2 = pose3->position() - pose2->position();
+    double vel1 = diff1.norm() / dt1->dt();
+    double vel2 = diff2.norm() / dt2->dt();
+    
+    // consider directions
+//     vel1 *= g2o::sign(diff1[0]*cos(pose1->theta()) + diff1[1]*sin(pose1->theta())); 
+//     vel2 *= g2o::sign(diff2[0]*cos(pose2->theta()) + diff2[1]*sin(pose2->theta())); 
+    vel1 *= fast_sigmoid( 100*(diff1.x()*cos(pose1->theta()) + diff1.y()*sin(pose1->theta())) ); 
+    vel2 *= fast_sigmoid( 100*(diff2.x()*cos(pose2->theta()) + diff2.y()*sin(pose2->theta())) ); 
+    
     double acc_lin  = (vel2 - vel1)*2 / ( dt1->dt() + dt2->dt() );
+   
 
-    _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon);
     
     // ANGULAR ACCELERATION
     double omega1 = g2o::normalize_theta(pose2->theta() - pose1->theta()) / dt1->dt();
     double omega2 = g2o::normalize_theta(pose3->theta() - pose2->theta()) / dt2->dt();
     double acc_rot  = (omega2 - omega1)*2 / ( dt1->dt() + dt2->dt() );
       
-    _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon);
 
     
     ROS_ASSERT_MSG(!std::isnan(_error[0]) && !std::isinf(_error[0]), "EdgeAcceleration::computeError() translational: _error[0]=%f\n",_error[0]);
@@ -341,7 +350,7 @@ public:
     for(unsigned int i=0;i<3;i++)
     {
       if(_vertices[i]) 
-	_vertices[i]->edges().erase(this);
+        _vertices[i]->edges().erase(this);
     }
   }
   
@@ -356,19 +365,24 @@ public:
     const VertexTimeDiff* dt = static_cast<const VertexTimeDiff*>(_vertices[2]);
 
     // VELOCITY & ACCELERATION
-
+    Eigen::Vector2d diff = pose2->position() - pose1->position();
     double vel1 = _measurement->coeffRef(0);
-    double vel2 = (pose2->position() - pose1->position()).norm() / dt->dt();
-    double acc_lin  = (vel2 - vel1) / dt->dt();
+    double vel2 = diff.norm() / dt->dt();
 
-    _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    // consider directions
+    //vel2 *= g2o::sign(diff[0]*cos(pose1->theta()) + diff[1]*sin(pose1->theta())); 
+    vel2 *= fast_sigmoid( 100*(diff.x()*cos(pose1->theta()) + diff.y()*sin(pose1->theta())) ); 
+    
+    double acc_lin  = (vel2 - vel1) / dt->dt();
+    
+    _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon);
     
     // ANGULAR ACCELERATION
     double omega1 = _measurement->coeffRef(1);
     double omega2 = g2o::normalize_theta(pose2->theta() - pose1->theta()) / dt->dt();
     double acc_rot  = (omega2 - omega1) / dt->dt();
       
-    _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon);
 
     ROS_ASSERT_MSG(!std::isnan(_error[0]) && !std::isinf(_error[0]), "EdgeAccelerationStart::computeError() translational: _error[0]=%f\n",_error[0]);
     ROS_ASSERT_MSG(!std::isnan(_error[1]) && !std::isinf(_error[1]), "EdgeAccelerationStart::computeError() rotational: _error[1]=%f\n",_error[1]);
@@ -494,18 +508,24 @@ public:
 
     // VELOCITY & ACCELERATION
 
-    double vel1 = (pose_goal->position() - pose_pre_goal->position()).norm() / dt->dt();
+    Eigen::Vector2d diff = pose_goal->position() - pose_pre_goal->position();    
+    double vel1 = diff.norm() / dt->dt();
     double vel2 = _measurement->coeffRef(0);
+    
+    // consider directions
+    //vel1 *= g2o::sign(diff[0]*cos(pose_pre_goal->theta()) + diff[1]*sin(pose_pre_goal->theta())); 
+    vel1 *= fast_sigmoid( 100*(diff.x()*cos(pose_pre_goal->theta()) + diff.y()*sin(pose_pre_goal->theta())) ); 
+    
     double acc_lin  = (vel2 - vel1) / dt->dt();
 
-    _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon);
     
     // ANGULAR ACCELERATION
     double omega1 = g2o::normalize_theta(pose_goal->theta() - pose_pre_goal->theta()) / dt->dt();
     double omega2 = _measurement->coeffRef(1);
     double acc_rot  = (omega2 - omega1) / dt->dt();
       
-    _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon);
 
     ROS_ASSERT_MSG(!std::isnan(_error[0]) && !std::isinf(_error[0]), "EdgeAccelerationGoal::computeError() translational: _error[0]=%f\n",_error[0]);
     ROS_ASSERT_MSG(!std::isnan(_error[1]) && !std::isinf(_error[1]), "EdgeAccelerationGoal::computeError() rotational: _error[1]=%f\n",_error[1]);
