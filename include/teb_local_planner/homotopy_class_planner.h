@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -195,9 +195,11 @@ public:
   /**
    * @brief Get the velocity command from a previously optimized plan to control the robot at the current sampling interval.
    * @warning Call plan() first and check if the generated plan is feasible.
-   * @return 2D vector containing the translational and angular velocity 
+   * @param[out] v translational velocity [m/s]
+   * @param[out] omega rotational velocity [rad/s]
+   * @return \c true if command is valid, \c false otherwise
    */
-  virtual Eigen::Vector2d getVelocityCommand() const;
+  virtual bool getVelocityCommand(double& v, double& omega) const;
   
   /**
    * @brief Access current best trajectory candidate (that relates to the "best" homotopy class).
@@ -208,7 +210,7 @@ public:
    * @return Shared pointer to the best TebOptimalPlanner that contains the selected trajectory (TimedElasticBand).
    */
   TebOptimalPlannerPtr bestTeb() const {return tebs_.empty() ? TebOptimalPlannerPtr() : tebs_.size()==1 ? tebs_.front() : best_teb_;}
-  
+    
   /**
    * @brief Check whether the planned trajectory is feasible or not.
    * 
@@ -451,6 +453,13 @@ protected:
    * @brief Clear any existing graph of the homotopy class search
    */
   void clearGraph() {graph_.clear();}
+  
+  /**
+   * @brief find the index of the currently best TEB in the container
+   * @remarks bestTeb() should be preferred whenever possible
+   * @return index of the best TEB obtained with bestTEB(), if no TEB is avaiable, it returns -1.
+   */
+  int bestTebIdx() const;
   
   //@}
   
