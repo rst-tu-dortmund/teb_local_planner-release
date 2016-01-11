@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -274,6 +274,18 @@ inline double average_angles(const std::vector<double>& angles)
 
 /** @brief Small helper function: check if |a|<|b| */
 inline bool smaller_than_abs(double i, double j) {return std::fabs(i)<std::fabs(j);}
+
+
+/**
+ * @brief Calculate a fast approximation of a sigmoid function
+ * @details The following function is implemented: \f$ x / (1 + |x|) \f$
+ * @param x the argument of the function
+*/
+inline double fast_sigmoid(double x)
+{
+  return x / (1 + fabs(x));
+}
+
 
 /** 
  * @brief Helper function that returns the const reference to a value defined by either its raw pointer type or const reference.
