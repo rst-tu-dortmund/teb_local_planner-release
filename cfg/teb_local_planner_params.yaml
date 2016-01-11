@@ -17,6 +17,7 @@ TebLocalPlannerROS:
  max_vel_theta: 0.3
  acc_lim_x: 0.5
  acc_lim_theta: 0.5
+ min_turning_radius: 0.0
     
  # GoalTolerance
     
@@ -43,7 +44,6 @@ TebLocalPlannerROS:
  no_outer_iterations: 4
  optimization_activate: True
  optimization_verbose: False
- penalty_scale: 0.1
  penalty_epsilon: 0.1
  weight_max_vel_x: 2
  weight_max_vel_theta: 1
@@ -51,6 +51,7 @@ TebLocalPlannerROS:
  weight_acc_lim_theta: 1
  weight_kinematics_nh: 1000
  weight_kinematics_forward_drive: 1
+ weight_kinematics_turning_radius: 1
  weight_optimaltime: 1
  weight_point_obstacle: 50
  weight_line_obstacle: 50
@@ -65,7 +66,7 @@ TebLocalPlannerROS:
  simple_exploration: False
  max_number_classes: 5
  roadmap_graph_no_samples: 15
- roadmap_graph_area_width: 6
+ roadmap_graph_area_width: 5
  h_signature_prescaler: 0.5
  h_signature_threshold: 0.01
  obstacle_keypoint_offset: 0.1

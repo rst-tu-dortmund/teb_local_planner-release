@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -44,9 +44,8 @@ namespace teb_local_planner
 
 // ============== Implementation ===================
 
-TebOptimalPlanner::TebOptimalPlanner() : cfg_(NULL), obstacles_(NULL), initialized_(false), optimized_(false)
+TebOptimalPlanner::TebOptimalPlanner() : cfg_(NULL), obstacles_(NULL), cost_(HUGE_VAL), initialized_(false), optimized_(false)
 {    
-  cost_.setConstant(HUGE_VAL);
 }
   
 TebOptimalPlanner::TebOptimalPlanner(const TebConfig& cfg, std::vector<ObstaclePtr>* obstacles, TebVisualizationPtr visual)
@@ -71,7 +70,7 @@ void TebOptimalPlanner::initialize(const TebConfig& cfg, std::vector<ObstaclePtr
   
   cfg_ = &cfg;
   obstacles_ = obstacles;
-  cost_.setConstant(HUGE_VAL);
+  cost_ = HUGE_VAL;
   setVisualization(visual);
   
   vel_start_.first = true;
@@ -90,11 +89,14 @@ void TebOptimalPlanner::setVisualization(TebVisualizationPtr visualization)
 
 void TebOptimalPlanner::visualize()
 {
-  if (visualization_)
-  {
-    visualization_->publishLocalPlanAndPoses(teb_);
-  }
-  else ROS_DEBUG("Ignoring TebOptimalPlanner::visualize() call, since no visualization class was instantiated before.");
+  if (!visualization_)
+    return;
+ 
+  visualization_->publishLocalPlanAndPoses(teb_);
+  
+  if (cfg_->trajectory.publish_feedback)
+    visualization_->publishFeedbackMessage(*this, *obstacles_);
+ 
 }
 
 
@@ -112,7 +114,8 @@ void TebOptimalPlanner::registerG2OTypes()
   factory->registerType("EDGE_ACCELERATION", new g2o::HyperGraphElementCreator<EdgeAcceleration>);
   factory->registerType("EDGE_ACCELERATION_START", new g2o::HyperGraphElementCreator<EdgeAccelerationStart>);
   factory->registerType("EDGE_ACCELERATION_GOAL", new g2o::HyperGraphElementCreator<EdgeAccelerationGoal>);
-  factory->registerType("EDGE_KINEMATICS", new g2o::HyperGraphElementCreator<EdgeKinematics>);
+  factory->registerType("EDGE_KINEMATICS_DIFF_DRIVE", new g2o::HyperGraphElementCreator<EdgeKinematicsDiffDrive>);
+  factory->registerType("EDGE_KINEMATICS_CARLIKE", new g2o::HyperGraphElementCreator<EdgeKinematicsCarlike>);
   factory->registerType("EDGE_POINT_OBSTACLE", new g2o::HyperGraphElementCreator<EdgePointObstacle>);
   factory->registerType("EDGE_LINE_OBSTACLE", new g2o::HyperGraphElementCreator<EdgeLineObstacle>);
   factory->registerType("EDGE_POLYGON_OBSTACLE", new g2o::HyperGraphElementCreator<EdgePolygonObstacle>);
@@ -290,9 +293,11 @@ bool TebOptimalPlanner::buildGraph()
 
   AddEdgesTimeOptimal();	
   
-  AddEdgesKinematics();
+  if (cfg_->robot.min_turning_radius == 0 || cfg_->optim.weight_kinematics_turning_radius == 0)
+    AddEdgesKinematicsDiffDrive(); // we have a differential drive robot
+  else
+    AddEdgesKinematicsCarlike(); // we have a carlike robot since the turning radius is bounded from below.
 
-  
   return true;  
 }
 
@@ -641,12 +646,12 @@ void TebOptimalPlanner::AddEdgesTimeOptimal()
 
 
 
-void TebOptimalPlanner::AddEdgesKinematics()
+void TebOptimalPlanner::AddEdgesKinematicsDiffDrive()
 {
   if (cfg_->optim.weight_kinematics_nh==0 && cfg_->optim.weight_kinematics_forward_drive==0)
     return; // if weight equals zero skip adding edges!
   
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding edges for kinematic constraints ...");
+  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding edges for kinematic constraints of a diffdrive robot ...");
 
   // create edge for satisfiying kinematic constraints
   Eigen::Matrix<double,2,2> information_kinematics;
@@ -656,7 +661,7 @@ void TebOptimalPlanner::AddEdgesKinematics()
   
   for (unsigned int i=0; i < teb_.sizePoses()-1; i++) // ignore twiced start only
   {
-    EdgeKinematics* kinematics_edge = new EdgeKinematics;
+    EdgeKinematicsDiffDrive* kinematics_edge = new EdgeKinematicsDiffDrive;
     kinematics_edge->setVertex(0,teb_.PoseVertex(i));
     kinematics_edge->setVertex(1,teb_.PoseVertex(i+1));      
     kinematics_edge->setInformation(information_kinematics);
@@ -665,6 +670,29 @@ void TebOptimalPlanner::AddEdgesKinematics()
   }	 
 }
 
+void TebOptimalPlanner::AddEdgesKinematicsCarlike()
+{
+  if (cfg_->optim.weight_kinematics_nh==0 && cfg_->optim.weight_kinematics_turning_radius)
+    return; // if weight equals zero skip adding edges!
+  
+  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding edges for kinematic constraints of a carlike robot ...");
+
+  // create edge for satisfiying kinematic constraints
+  Eigen::Matrix<double,2,2> information_kinematics;
+  information_kinematics.fill(0.0);
+  information_kinematics(0, 0) = cfg_->optim.weight_kinematics_nh;
+  information_kinematics(1, 1) = cfg_->optim.weight_kinematics_turning_radius;
+  
+  for (unsigned int i=0; i < teb_.sizePoses()-1; i++) // ignore twiced start only
+  {
+    EdgeKinematicsCarlike* kinematics_edge = new EdgeKinematicsCarlike;
+    kinematics_edge->setVertex(0,teb_.PoseVertex(i));
+    kinematics_edge->setVertex(1,teb_.PoseVertex(i+1));      
+    kinematics_edge->setInformation(information_kinematics);
+    kinematics_edge->setTebConfig(*cfg_);
+    optimizer_->addEdge(kinematics_edge);
+  }  
+}
 
 
 void TebOptimalPlanner::computeCurrentCost(bool alternative_time_cost)
@@ -688,11 +716,11 @@ void TebOptimalPlanner::computeCurrentCost(bool alternative_time_cost)
   // now we need pointers to all edges -> calculate error for each edge-type
   // since we aren't storing edge pointers, we need to check every edge
     
-  cost_.fill(0.0);
+  cost_ = 0;
   
   if (alternative_time_cost)
   {
-    cost_.coeffRef(0) = teb_.getSumOfAllTimeDiffs()*4; // normalize to cost magnitude! Value is obtained from a few measurements!
+    cost_ += teb_.getSumOfAllTimeDiffs()*4; // normalize to cost magnitude! Value is obtained from a few measurements!
     //TEST we use SumOfAllTimeDiffs() here, because edge cost depends on number of samples, which is not always the same for similar TEBs,
     // since we are using an AutoResize Function with hysteresis. Unfortunately the sparse optimal_time edge cannot be normalized with the number of states.
   }
@@ -700,55 +728,62 @@ void TebOptimalPlanner::computeCurrentCost(bool alternative_time_cost)
   for (std::vector<g2o::OptimizableGraph::Edge*>::const_iterator it = optimizer_->activeEdges().begin(); it!= optimizer_->activeEdges().end(); it++)
   {
     EdgeTimeOptimal* edge_time_optimal = dynamic_cast<EdgeTimeOptimal*>(*it);
-    if (edge_time_optimal!=NULL)
+    if (edge_time_optimal!=NULL && !alternative_time_cost)
     {
-      if (!alternative_time_cost) 
-	cost_.coeffRef(0) += pow(edge_time_optimal->getError()[0],2);
+      cost_ += pow(edge_time_optimal->getError()[0],2);
       continue;
     }
 
-    EdgeKinematics* edge_kinematics = dynamic_cast<EdgeKinematics*>(*it);
-    if (edge_kinematics!=NULL)
+    EdgeKinematicsDiffDrive* edge_kinematics_dd = dynamic_cast<EdgeKinematicsDiffDrive*>(*it);
+    if (edge_kinematics_dd!=NULL)
     {
-      cost_.coeffRef(1) += pow(edge_kinematics->getError()[0],2);
-      cost_.coeffRef(2) += pow(edge_kinematics->getError()[1],2);
+      cost_ += pow(edge_kinematics_dd->getError()[0],2);
+      cost_ += pow(edge_kinematics_dd->getError()[1],2);
+      continue;
+    }
+    
+    EdgeKinematicsCarlike* edge_kinematics_cl = dynamic_cast<EdgeKinematicsCarlike*>(*it);
+    if (edge_kinematics_cl!=NULL)
+    {
+      cost_ += pow(edge_kinematics_cl->getError()[0],2);
+      cost_ += pow(edge_kinematics_cl->getError()[1],2);
       continue;
     }
     
     EdgeVelocity* edge_velocity = dynamic_cast<EdgeVelocity*>(*it);
     if (edge_velocity!=NULL)
     {
-      cost_.coeffRef(3) += pow(edge_velocity->getError()[0],2);
-      cost_.coeffRef(4) += pow(edge_velocity->getError()[1],2);
+      cost_ += pow(edge_velocity->getError()[0],2);
+      cost_ += pow(edge_velocity->getError()[1],2);
       continue;
     }
     
     EdgeAcceleration* edge_acceleration = dynamic_cast<EdgeAcceleration*>(*it);
     if (edge_acceleration!=NULL)
     {
-      cost_.coeffRef(5) += pow(edge_acceleration->getError()[0],2);
-      cost_.coeffRef(6) += pow(edge_acceleration->getError()[1],2);
+      cost_ += pow(edge_acceleration->getError()[0],2);
+      cost_ += pow(edge_acceleration->getError()[1],2);
       continue;
     }
     
     EdgePointObstacle* edge_point_obstacle = dynamic_cast<EdgePointObstacle*>(*it);
     if (edge_point_obstacle!=NULL)
     {
-      cost_.coeffRef(7) += pow(edge_point_obstacle->getError()[0],2);
+      cost_ += pow(edge_point_obstacle->getError()[0],2);
       continue;
     }
 
     EdgeLineObstacle* edge_line_obstacle = dynamic_cast<EdgeLineObstacle*>(*it);
     if (edge_line_obstacle!=NULL)
     {
-      cost_.coeffRef(8) += pow(edge_line_obstacle->getError()[0],2);
+      cost_ += pow(edge_line_obstacle->getError()[0],2);
       continue;
     }
     
     EdgePolygonObstacle* edge_polygon_obstacle = dynamic_cast<EdgePolygonObstacle*>(*it);
     if (edge_polygon_obstacle!=NULL)
     {
-      cost_.coeffRef(9) += pow(edge_polygon_obstacle->getError()[0],2);
+      cost_ += pow(edge_polygon_obstacle->getError()[0],2);
       continue;
     }  
   }
@@ -759,32 +794,117 @@ void TebOptimalPlanner::computeCurrentCost(bool alternative_time_cost)
 }
 
 
-Eigen::Vector2d TebOptimalPlanner::getVelocityCommand() const
+void TebOptimalPlanner::extractVelocity(const PoseSE2& pose1, const PoseSE2& pose2, double dt, double& v, double& omega) const
+{
+  Eigen::Vector2d deltaS = pose2.position() - pose1.position();
+  Eigen::Vector2d conf1dir( cos(pose1.theta()), sin(pose1.theta()) );
+  // translational velocity
+  double dir = deltaS.dot(conf1dir);
+  v = (double) g2o::sign(dir) * deltaS.norm()/dt;
+  
+  // rotational velocity
+  double orientdiff = g2o::normalize_theta(pose2.theta() - pose1.theta());
+  omega = orientdiff/dt;
+}
+
+bool TebOptimalPlanner::getVelocityCommand(double& v, double& omega) const
 {
   if (teb_.sizePoses()<2)
+  {
     ROS_ERROR("TebOptimalPlanner::getVelocityCommand(): The trajectory contains less than 2 poses. Make sure to init and optimize/plan the trajectory fist.");
+    v = 0;
+    omega = 0;
+    return false;
+  }
   
   double dt = teb_.TimeDiff(0);
   if (dt<=0)
   {	
     ROS_ERROR("TebOptimalPlanner::getVelocityCommand() - timediff<=0 is invalid!");
-    return Eigen::Vector2d::Zero();			
+    v = 0;
+    omega = 0;
+    return false;
   }
 	  
   // Get velocity from the first two configurations
-  Eigen::Vector2d vel;
-  Eigen::Vector2d deltaS = teb_.Pose(1).position()-teb_.Pose(0).position();
-  Eigen::Vector2d conf1dir( cos(teb_.Pose(0).theta()) , sin(teb_.Pose(0).theta()) );
-  // translational velocity
-  double dir = deltaS.dot(conf1dir);
-  vel.coeffRef(0) = (double) g2o::sign(dir) * deltaS.norm()/dt;
-  
-  // rotational velocity
-  double orientdiff = g2o::normalize_theta(teb_.Pose(1).theta()-teb_.Pose(0).theta());
-  vel.coeffRef(1) = orientdiff/dt;
-  
-  return vel;
+  extractVelocity(teb_.Pose(0), teb_.Pose(1), dt, v, omega);
+  return true;
 }
+
+void TebOptimalPlanner::getVelocityProfile(std::vector<geometry_msgs::Twist>& velocity_profile) const
+{
+  int n = (int) teb_.sizePoses();
+  velocity_profile.resize( n+1 );
+
+  // start velocity
+  velocity_profile.front().linear.y = velocity_profile.front().linear.z = 0;
+  velocity_profile.front().angular.x = velocity_profile.front().angular.y = 0;  
+  velocity_profile.front().linear.x = vel_start_.second.x();
+  velocity_profile.front().angular.z = vel_start_.second.y();
+  
+  for (int i=1; i<n; ++i)
+  {
+    velocity_profile[i].linear.y = velocity_profile[i].linear.z = 0;
+    velocity_profile[i].angular.x = velocity_profile[i].angular.y = 0;
+    extractVelocity(teb_.Pose(i-1), teb_.Pose(i), teb_.TimeDiff(i-1), velocity_profile[i].linear.x, velocity_profile[i].angular.z);
+  }
+  
+  // goal velocity
+  velocity_profile.back().linear.y = velocity_profile.back().linear.z = 0;
+  velocity_profile.back().angular.x = velocity_profile.back().angular.y = 0;  
+  velocity_profile.back().linear.x = vel_goal_.second.x();
+  velocity_profile.back().angular.z = vel_goal_.second.y();
+}
+
+void TebOptimalPlanner::getFullTrajectory(std::vector<TrajectoryPointMsg>& trajectory) const
+{
+  int n = (int) teb_.sizePoses();
+  
+  trajectory.resize(n);
+  
+  if (n == 0)
+    return;
+     
+  double curr_time = 0;
+  
+  // start
+  TrajectoryPointMsg& start = trajectory.front();
+  teb_.Pose(0).toPoseMsg(start.pose);
+  start.velocity.linear.y = start.velocity.linear.z = 0;
+  start.velocity.angular.x = start.velocity.angular.y = 0;
+  start.velocity.linear.x = vel_start_.second.x();
+  start.velocity.angular.z = vel_start_.second.y();
+  start.time_from_start.fromSec(curr_time);
+  
+  curr_time += teb_.TimeDiff(0);
+  
+  // intermediate points
+  for (int i=1; i < n-1; ++i)
+  {
+    TrajectoryPointMsg& point = trajectory[i];
+    teb_.Pose(i).toPoseMsg(point.pose);
+    point.velocity.linear.y = point.velocity.linear.z = 0;
+    point.velocity.angular.x = point.velocity.angular.y = 0;
+    double vel1, vel2, omega1, omega2;
+    extractVelocity(teb_.Pose(i-1), teb_.Pose(i), teb_.TimeDiff(i-1), vel1, omega1);
+    extractVelocity(teb_.Pose(i), teb_.Pose(i+1), teb_.TimeDiff(i), vel2, omega2);
+    point.velocity.linear.x = 0.5*(vel1+vel2);
+    point.velocity.angular.z = 0.5*(omega1+omega2);    
+    point.time_from_start.fromSec(curr_time);
+    
+    curr_time += teb_.TimeDiff(i);
+  }
+  
+  // goal
+  TrajectoryPointMsg& goal = trajectory.back();
+  teb_.BackPose().toPoseMsg(goal.pose);
+  goal.velocity.linear.y = goal.velocity.linear.z = 0;
+  goal.velocity.angular.x = goal.velocity.angular.y = 0;
+  goal.velocity.linear.x = vel_goal_.second.x();
+  goal.velocity.angular.z = vel_goal_.second.y();
+  goal.time_from_start.fromSec(curr_time);
+}
+
 
 bool TebOptimalPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* costmap_model, const std::vector<geometry_msgs::Point>& footprint_spec,
                                              double inscribed_radius, double circumscribed_radius, int look_ahead_idx)
@@ -796,6 +916,20 @@ bool TebOptimalPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* c
   {           
     if ( costmap_model->footprintCost(teb().Pose(i).x(), teb().Pose(i).y(), teb().Pose(i).theta(), footprint_spec, inscribed_radius, circumscribed_radius) < 0 )
       return false;
+    
+    // check if distance between two poses is higher than the robot radius and interpolate in that case
+    // (if obstacles are pushing two consecutive poses away, the center between two consecutive poses might coincide with the obstacle ;-)!
+    if (i<look_ahead_idx)
+    {
+      if ( (teb().Pose(i+1).position()-teb().Pose(i).position()).norm() > inscribed_radius)
+      {
+        // check one more time
+        PoseSE2 center = PoseSE2::average(teb().Pose(i), teb().Pose(i+1));
+        if ( costmap_model->footprintCost(center.x(), center.y(), center.theta(), footprint_spec, inscribed_radius, circumscribed_radius) < 0 )
+          return false;
+      }
+      
+    }
   }
   return true;
 }

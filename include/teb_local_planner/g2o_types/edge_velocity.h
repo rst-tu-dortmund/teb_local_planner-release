@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -51,9 +51,7 @@
 
 #include <g2o/core/base_multi_edge.h>
 
-
 #include <iostream>
-#include <float.h>
 
 namespace teb_local_planner
 {
@@ -112,20 +110,22 @@ public:
     const VertexPose* conf2 = static_cast<const VertexPose*>(_vertices[1]);
     const VertexTimeDiff* deltaT = static_cast<const VertexTimeDiff*>(_vertices[2]);
     Eigen::Vector2d deltaS = conf2->estimate().position() - conf1->estimate().position();
-
     double vel = deltaS.norm() / deltaT->estimate();
+//     vel *= g2o::sign(deltaS[0]*cos(conf1->theta()) + deltaS[1]*sin(conf1->theta())); // consider direction
+    vel *= fast_sigmoid( 100 * (deltaS.x()*cos(conf1->theta()) + deltaS.y()*sin(conf1->theta())) ); // consider direction
     
     double omega = g2o::normalize_theta(conf2->theta() - conf1->theta()) / deltaT->estimate();
   
-    _error[0] = penaltyBoundToInterval(vel, -cfg_->robot.max_vel_x_backwards, cfg_->robot.max_vel_x,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
-    _error[1] = penaltyBoundToInterval(omega, cfg_->robot.max_vel_theta,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    _error[0] = penaltyBoundToInterval(vel, -cfg_->robot.max_vel_x_backwards, cfg_->robot.max_vel_x,cfg_->optim.penalty_epsilon);
+    _error[1] = penaltyBoundToInterval(omega, cfg_->robot.max_vel_theta,cfg_->optim.penalty_epsilon);
 
     ROS_ASSERT_MSG(!std::isnan(_error[0]) && !std::isinf(_error[0]) && !std::isnan(_error[1]) && !std::isinf(_error[1]),
 		    "EdgeVelocity::computeError() _error[0]=%f _error[1]=%f\n",_error[0],_error[1]);
   }
 
 #ifdef USE_ANALYTIC_JACOBI
-#if 1
+#if 0 //TODO the hardcoded jacobian does not include the changing direction (just the absolute value)
+      // Change accordingly...
 
   /**
    * @brief Jacobi matrix of the cost function specified in computeError().
@@ -145,8 +145,8 @@ public:
     double vel = dist * aux2;
     double omega = g2o::normalize_theta(conf2->theta() - conf1->theta()) * aux2;
     
-    double dev_border_vel = penaltyBoundToIntervalDerivative(vel, -cfg_->robot.max_vel_x_backwards, cfg_->robot.max_vel_x,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
-    double dev_border_omega = penaltyBoundToIntervalDerivative(omega, cfg_->robot.max_vel_theta,cfg_->optim.penalty_epsilon,cfg_->optim.penalty_scale);
+    double dev_border_vel = penaltyBoundToIntervalDerivative(vel, -cfg_->robot.max_vel_x_backwards, cfg_->robot.max_vel_x,cfg_->optim.penalty_epsilon);
+    double dev_border_omega = penaltyBoundToIntervalDerivative(omega, cfg_->robot.max_vel_theta,cfg_->optim.penalty_epsilon);
     
     _jacobianOplus[0].resize(2,3); // conf1
     _jacobianOplus[1].resize(2,3); // conf2

@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -72,6 +72,7 @@
 #include <nav_msgs/Path.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <tf/transform_datatypes.h>
+#include <teb_local_planner/TrajectoryMsg.h>
 
 #include <nav_msgs/Odometry.h>
 #include <limits.h>
@@ -100,14 +101,7 @@ typedef g2o::LinearSolverCSparse<TEBBlockSolver::PoseMatrixType> TEBLinearSolver
 class TebOptimalPlanner : public PlannerInterface
 {
 public:
-  
-  /**
-   * @brief Abbrev. for a vector in which each element corresponds to the cost value of a specific cost function (edge type).
-   * @see computeCurrentCost()
-   * @see optimizeTEB()
-   */
-  typedef Eigen::Matrix<double, 10, 1> TebCostVec;
-  
+    
   /**
    * @brief Default constructor
    */
@@ -197,9 +191,11 @@ public:
   /**
    * @brief Get the velocity command from a previously optimized plan to control the robot at the current sampling interval.
    * @warning Call plan() first and check if the generated plan is feasible.
-   * @return 2D vector containing the translational and angular velocity 
+   * @param[out] v translational velocity [m/s]
+   * @param[out] omega rotational velocity [rad/s]
+   * @return \c true if command is valid, \c false otherwise
    */
-  virtual Eigen::Vector2d getVelocityCommand() const;
+  virtual bool getVelocityCommand(double& v, double& omega) const;
   
   
   /**
@@ -368,7 +364,7 @@ public:
    * implemented definition, if the value is scaled to match the magnitude of other cost values.
    * 
    * @todo Remove the scaling term for the alternative time cost.
-   * 
+   * @todo Can we use the last error (chi2) calculated from g2o instead of calculating it by ourself?
    * @see getCurrentCost
    * @see optimizeTEB
    * @param alternative_time_cost Replace the cost for the time optimal objective by the actual (weighted) transition time.
@@ -379,11 +375,57 @@ public:
   /**
    * @brief Access the cost vector.
    *
-   * The cost vector must previously calculated using computeCurrentCost 
+   * The accumulated cost value previously calculated using computeCurrentCost 
    * or by calling optimizeTEB with enabled cost flag.
    * @return const reference to the TebCostVec.
    */
-  const TebCostVec& getCurrentCost() const {return cost_;}
+  double getCurrentCost() const {return cost_;}
+  
+  /**
+   * @brief Extract the velocity from consecutive poses and a time difference
+   * 
+   * The velocity is extracted using finite differences.
+   * The direction of the translational velocity is also determined.
+   * @param pose1 pose at time k
+   * @param pose2 consecutive pose at time k+1
+   * @param dt actual time difference between k and k+1 (must be >0 !!!)
+   * @param[out] v translational velocity
+   * @param[out] omega rotational velocity
+   */
+  inline void extractVelocity(const PoseSE2& pose1, const PoseSE2& pose2, double dt, double& v, double& omega) const;
+  
+  /**
+   * @brief Compute the velocity profile of the trajectory
+   * 
+   * This method computes the translational and rotational velocity for the complete
+   * planned trajectory. 
+   * The first velocity is the one that is provided as initial velocity (fixed).
+   * Velocities at index k=2...end-1 are related to the transition from pose_{k-1} to pose_k. 
+   * The last velocity is the final velocity (fixed).
+   * The number of Twist objects is therefore sizePoses()+1;
+   * In summary:
+   *     v[0] = v_start,
+   *     v[1,...end-1] = +-(pose_{k+1}-pose{k})/dt, 
+   *     v(end) = v_goal
+   * It can be used for evaluation and debugging purposes or
+   * for open-loop control. For computing the velocity required for controlling the robot
+   * to the next step refer to getVelocityCommand().
+   * @param[out] velocity_profile velocity profile will be written to this vector (after clearing any existing content) with the size=#poses+1
+   */
+  void getVelocityProfile(std::vector<geometry_msgs::Twist>& velocity_profile) const;
+  
+    /**
+   * @brief Return the complete trajectory including poses, velocity profiles and temporal information
+   * 
+   * It is useful for evaluation and debugging purposes or for open-loop control.
+   * Since the velocity obtained using difference quotients is the mean velocity between consecutive poses,
+   * the velocity at each pose at time stamp k is obtained by taking the average between both velocities.
+   * The velocity of the first pose is v_start (provided initial value) and the last one is v_goal (usually zero, if free_goal_vel is off).
+   * See getVelocityProfile() for the list of velocities between consecutive points.
+   * @todo The acceleration profile is not added at the moment.
+   * @param[out] trajectory the resulting trajectory
+   */
+  void getFullTrajectory(std::vector<TrajectoryPointMsg>& trajectory) const;
   
   /**
    * @brief Check whether the planned trajectory is feasible or not.
@@ -500,12 +542,20 @@ protected:
   void AddEdgesDynamicObstacles();  
 
   /**
-   * @brief Add all edges (local cost functions) for satisfying kinematic constraints
-   * @see EdgeKinematics
+   * @brief Add all edges (local cost functions) for satisfying kinematic constraints of a differential drive robot
+   * @see AddEdgesKinematicsCarlike
    * @see buildGraph
    * @see optimizeGraph
    */
-  void AddEdgesKinematics();
+  void AddEdgesKinematicsDiffDrive();
+  
+  /**
+   * @brief Add all edges (local cost functions) for satisfying kinematic constraints of a carlike robot
+   * @see AddEdgesKinematicsDiffDrive
+   * @see buildGraph
+   * @see optimizeGraph
+   */
+  void AddEdgesKinematicsCarlike();
   
   //@}
   
@@ -518,10 +568,10 @@ protected:
     
 
   // external objects (store weak pointers)
-  ObstContainer* obstacles_; //!< Store obstacles that are relevant for planning
   const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
+  ObstContainer* obstacles_; //!< Store obstacles that are relevant for planning
   
-  TebCostVec cost_; //!< Store composed cost vector of the current hyper-graph
+  double cost_; //!< Store cost value of the current hyper-graph
   
   // internal objects (memory management owned)
   TebVisualizationPtr visualization_; //!< Instance of the visualization class
