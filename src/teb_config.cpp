@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2015,
+ *  Copyright (c) 2016,
  *  TU Dortmund - Institute of Control Theory and Systems Engineering.
  *  All rights reserved.
  *
@@ -54,6 +54,8 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("min_samples", trajectory.min_samples, trajectory.min_samples);
   nh.param("global_plan_overwrite_orientation", trajectory.global_plan_overwrite_orientation, trajectory.global_plan_overwrite_orientation);
   nh.param("force_reinit_new_goal_dist", trajectory.force_reinit_new_goal_dist, trajectory.force_reinit_new_goal_dist);
+  nh.param("feasibility_check_no_poses", trajectory.feasibility_check_no_poses, trajectory.feasibility_check_no_poses);
+  nh.param("publish_feedback", trajectory.publish_feedback, trajectory.publish_feedback);
   
   // Robot
   nh.param("max_vel_x", robot.max_vel_x, robot.max_vel_x);
@@ -61,6 +63,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("max_vel_theta", robot.max_vel_theta, robot.max_vel_theta);
   nh.param("acc_lim_x", robot.acc_lim_x, robot.acc_lim_x);
   nh.param("acc_lim_theta", robot.acc_lim_theta, robot.acc_lim_theta);
+  nh.param("min_turning_radius", robot.min_turning_radius, robot.min_turning_radius);
   
   // GoalTolerance
   nh.param("xy_goal_tolerance", goal_tolerance.xy_goal_tolerance, goal_tolerance.xy_goal_tolerance);
@@ -83,7 +86,6 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("no_outer_iterations", optim.no_outer_iterations, optim.no_outer_iterations);
   nh.param("optimization_activate", optim.optimization_activate, optim.optimization_activate);
   nh.param("optimization_verbose", optim.optimization_verbose, optim.optimization_verbose);
-  nh.param("penalty_scale", optim.penalty_scale, optim.penalty_scale);
   nh.param("penalty_epsilon", optim.penalty_epsilon, optim.penalty_epsilon);
   nh.param("weight_max_vel_x", optim.weight_max_vel_x, optim.weight_max_vel_x);
   nh.param("weight_max_vel_theta", optim.weight_max_vel_theta, optim.weight_max_vel_theta);
@@ -91,6 +93,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("weight_acc_lim_theta", optim.weight_acc_lim_theta, optim.weight_acc_lim_theta);
   nh.param("weight_kinematics_nh", optim.weight_kinematics_nh, optim.weight_kinematics_nh);
   nh.param("weight_kinematics_forward_drive", optim.weight_kinematics_forward_drive, optim.weight_kinematics_forward_drive);
+  nh.param("weight_kinematics_turning_radius", optim.weight_kinematics_turning_radius, optim.weight_kinematics_turning_radius);
   nh.param("weight_optimaltime", optim.weight_optimaltime, optim.weight_optimaltime);
   nh.param("weight_point_obstacle", optim.weight_point_obstacle, optim.weight_point_obstacle);
   nh.param("weight_line_obstacle", optim.weight_line_obstacle, optim.weight_line_obstacle);
@@ -110,6 +113,8 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("obstacle_keypoint_offset", hcp.obstacle_keypoint_offset, hcp.obstacle_keypoint_offset); 
   nh.param("obstacle_heading_threshold", hcp.obstacle_heading_threshold, hcp.obstacle_heading_threshold); 
   nh.param("visualize_hc_graph", hcp.visualize_hc_graph, hcp.visualize_hc_graph); 
+  
+  checkParameters();
 }
 
 void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
@@ -122,6 +127,8 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   trajectory.dt_hysteresis = cfg.dt_hysteresis;
   trajectory.global_plan_overwrite_orientation = cfg.global_plan_overwrite_orientation;
   trajectory.force_reinit_new_goal_dist = cfg.force_reinit_new_goal_dist;
+  trajectory.feasibility_check_no_poses = cfg.feasibility_check_no_poses;
+  trajectory.publish_feedback = cfg.publish_feedback;
   
   // Robot     
   robot.max_vel_x = cfg.max_vel_x;
@@ -129,6 +136,7 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   robot.max_vel_theta = cfg.max_vel_theta;
   robot.acc_lim_x = cfg.acc_lim_x;
   robot.acc_lim_theta = cfg.acc_lim_theta;
+  robot.min_turning_radius = cfg.min_turning_radius;
   
   // GoalTolerance
   goal_tolerance.xy_goal_tolerance = cfg.xy_goal_tolerance;
@@ -150,7 +158,6 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   optim.no_outer_iterations = cfg.no_outer_iterations;
   optim.optimization_activate = cfg.optimization_activate;
   optim.optimization_verbose = cfg.optimization_verbose;
-  optim.penalty_scale = cfg.penalty_scale;
   optim.penalty_epsilon = cfg.penalty_epsilon;
   optim.weight_max_vel_x = cfg.weight_max_vel_x;
   optim.weight_max_vel_theta = cfg.weight_max_vel_theta;
@@ -158,6 +165,7 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   optim.weight_acc_lim_theta = cfg.weight_acc_lim_theta;
   optim.weight_kinematics_nh = cfg.weight_kinematics_nh;
   optim.weight_kinematics_forward_drive = cfg.weight_kinematics_forward_drive;
+  optim.weight_kinematics_turning_radius = cfg.weight_kinematics_turning_radius;
   optim.weight_optimaltime = cfg.weight_optimaltime;
   optim.weight_point_obstacle = cfg.weight_point_obstacle;
   optim.weight_line_obstacle = cfg.weight_line_obstacle;
@@ -177,6 +185,45 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   hcp.h_signature_prescaler = cfg.h_signature_prescaler;
   hcp.h_signature_threshold = cfg.h_signature_threshold;
   hcp.visualize_hc_graph = cfg.visualize_hc_graph;
+  
+  checkParameters();
 }
+    
+    
+void TebConfig::checkParameters() const
+{
+  // positive backward velocity?
+  if (robot.max_vel_x_backwards <= 0)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: Do not choose max_vel_x_backwards to be <=0. Disable backwards driving by increasing the optimization weight for penalyzing backwards driving.");
+  
+  // bounds smaller than penalty epsilon
+  if (robot.max_vel_x <= optim.penalty_epsilon)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: max_vel_x <= penalty_epsilon. The resulting bound is negative. Undefined behavior... Change at least one of them!");
+  
+  if (robot.max_vel_x_backwards <= optim.penalty_epsilon)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: max_vel_x_backwards <= penalty_epsilon. The resulting bound is negative. Undefined behavior... Change at least one of them!");
+  
+  if (robot.max_vel_theta <= optim.penalty_epsilon)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: max_vel_theta <= penalty_epsilon. The resulting bound is negative. Undefined behavior... Change at least one of them!");
+  
+  if (robot.acc_lim_x <= optim.penalty_epsilon)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: acc_lim_x <= penalty_epsilon. The resulting bound is negative. Undefined behavior... Change at least one of them!");
+  
+  if (robot.acc_lim_theta <= optim.penalty_epsilon)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: acc_lim_theta <= penalty_epsilon. The resulting bound is negative. Undefined behavior... Change at least one of them!");
+      
+  // dt_ref and dt_hyst
+  if (trajectory.dt_ref <= trajectory.dt_hysteresis)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: dt_ref <= dt_hysteresis. The hysteresis is not allowed to be greater or equal!. Undefined behavior... Change at least one of them!");
+    
+  // min number of samples
+  if (trajectory.min_samples <3)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: parameter min_samples is smaller than 3! Sorry, I haven't enough degrees of freedom to plan a trajectory for you. Please increase ...");
+  
+  // hcp: obstacle heading threshold
+  if (hcp.obstacle_keypoint_offset>=1 || hcp.obstacle_keypoint_offset<=0)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: parameter obstacle_heading_threshold must be in the interval ]0,1[. 0=0deg opening angle, 1=90deg opening angle.");
+  
+}    
     
 } // namespace teb_local_planner
