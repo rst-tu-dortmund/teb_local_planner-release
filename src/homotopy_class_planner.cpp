@@ -484,9 +484,9 @@ for ( boost::tie(it,end) = boost::adjacent_vertices(back,g); it!=end; ++it)
 
 bool HomotopyClassPlanner::addHSignatureIfNew(const std::complex<long double>& H, double threshold)
 {	  
-  if (std::isnan(H.real()) || std::isnan(H.imag()))
+  if (!std::isfinite(H.real()) || !std::isfinite(H.imag()))
   {
-    ROS_WARN("HomotopyClassPlanner: Ignoring NAN H-signature");
+    ROS_WARN("HomotopyClassPlanner: Ignoring nan/inf H-signature");
     return false;
   }
   
@@ -752,7 +752,7 @@ int HomotopyClassPlanner::bestTebIdx() const
 }
 
 bool HomotopyClassPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* costmap_model, const std::vector<geometry_msgs::Point>& footprint_spec,
-						double inscribed_radius, double circumscribed_radius, int look_ahead_idx)
+                                                double inscribed_radius, double circumscribed_radius, int look_ahead_idx)
 {
   TebOptimalPlannerPtr best = bestTeb();
   if (!best)
@@ -761,5 +761,22 @@ bool HomotopyClassPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel
   return best->isTrajectoryFeasible(costmap_model,footprint_spec, inscribed_radius, circumscribed_radius, look_ahead_idx);
 }
 
- 
+bool HomotopyClassPlanner::isHorizonReductionAppropriate(const std::vector<geometry_msgs::PoseStamped>& initial_plan) const
+{
+  TebOptimalPlannerPtr best = bestTeb();
+  if (!best)
+    return false;
+  
+  return best->isHorizonReductionAppropriate(initial_plan);
 }
+
+void HomotopyClassPlanner::computeCurrentCost(std::vector<double>& cost)
+{
+  for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
+  {
+    it_teb->get()->computeCurrentCost(cost);
+  } 
+}
+ 
+ 
+} // end namespace
