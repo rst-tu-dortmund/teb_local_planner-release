@@ -373,6 +373,17 @@ public:
   void computeCurrentCost(bool alternative_time_cost=false);
   
   /**
+   * Compute and return the cost of the current optimization graph (supports multiple trajectories)
+   * @param[out] cost current cost value for each trajectory
+   *                  [for a planner with just a single trajectory: size=1, vector will not be cleared]
+   */
+  virtual void computeCurrentCost(std::vector<double>& cost)
+  {
+    computeCurrentCost();
+    cost.push_back( getCurrentCost() );
+  }
+  
+  /**
    * @brief Access the cost vector.
    *
    * The accumulated cost value previously calculated using computeCurrentCost 
@@ -380,6 +391,7 @@ public:
    * @return const reference to the TebCostVec.
    */
   double getCurrentCost() const {return cost_;}
+  
   
   /**
    * @brief Extract the velocity from consecutive poses and a time difference
@@ -410,7 +422,7 @@ public:
    * It can be used for evaluation and debugging purposes or
    * for open-loop control. For computing the velocity required for controlling the robot
    * to the next step refer to getVelocityCommand().
-   * @param[out] velocity_profile velocity profile will be written to this vector (after clearing any existing content) with the size=#poses+1
+   * @param[out] velocity_profile velocity profile will be written to this vector (after clearing any existing content) with the size=no_poses+1
    */
   void getVelocityProfile(std::vector<geometry_msgs::Twist>& velocity_profile) const;
   
@@ -433,16 +445,31 @@ public:
    * This method currently checks only that the trajectory, or a part of the trajectory is collision free.
    * Obstacles are here represented as costmap instead of the internal ObstacleContainer.
    * @param costmap_model Pointer to the costmap model
-   * @param footprint The specification of the footprint of the robot in world coordinates
+   * @param footprint_spec The specification of the footprint of the robot in world coordinates
    * @param inscribed_radius The radius of the inscribed circle of the robot
    * @param circumscribed_radius The radius of the circumscribed circle of the robot
    * @param look_ahead_idx Number of poses along the trajectory that should be verified, if -1, the complete trajectory will be checked.
    * @return \c true, if the robot footprint along the first part of the trajectory intersects with 
-   * 		      any obstacle in the costmap, \c false otherwise.
+   *         any obstacle in the costmap, \c false otherwise.
    */
   virtual bool isTrajectoryFeasible(base_local_planner::CostmapModel* costmap_model, const std::vector<geometry_msgs::Point>& footprint_spec, double inscribed_radius = 0.0,
-				    double circumscribed_radius=0.0, int look_ahead_idx=-1);
+          double circumscribed_radius=0.0, int look_ahead_idx=-1);
   
+  
+  /**
+   * @brief Check if the planner suggests a shorter horizon (e.g. to resolve problems)
+   * 
+   * This method is intendend to be called after determining that a trajectory provided by the planner is infeasible.
+   * In some cases a reduction of the horizon length might resolve problems. E.g. if a planned trajectory cut corners.
+   * Implemented cases for returning \c true (remaining length must be larger than 2m to trigger any case):
+   * - Goal orientation - start orientation > 90°
+   * - Goal heading - start orientation > 90°
+   * - The planned trajectory is at least 30° shorter than the initial plan (accumulated euclidean distances)
+   * - Distance between consecutive poses > 0.9*min_obstacle_dist
+   * @param initial_plan The intial and transformed plan (part of the local map and pruned up to the robot position)
+   * @return \c true, if the planner suggests a shorter horizon, \c false otherwise.
+   */
+  virtual bool isHorizonReductionAppropriate(const std::vector<geometry_msgs::PoseStamped>& initial_plan) const;
   
   //@}
   
