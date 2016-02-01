@@ -207,7 +207,7 @@ void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_s
   {
     if(TimeDiff(i) > dt_ref + dt_hysteresis)
     {
-      ROS_DEBUG("teb_local_planner: autoResize() inserting new bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
+      //ROS_DEBUG("teb_local_planner: autoResize() inserting new bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
       
       double newtime = 0.5*TimeDiff(i);
 
@@ -216,15 +216,15 @@ void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_s
       insertTimeDiff(i+1,newtime);
     }
     
-    else if(TimeDiff(i) < dt_ref - dt_hysteresis  && sizeTimeDiffs()>min_samples) // only remove samples if size is smaller than 5.
+    else if(TimeDiff(i) < dt_ref - dt_hysteresis && sizeTimeDiffs()>min_samples) // only remove samples if size is larger than min_samples.
     {
-      ROS_DEBUG("teb_local_planner: autoResize() deleting bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
+      //ROS_DEBUG("teb_local_planner: autoResize() deleting bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
       
       if(i < (sizeTimeDiffs()-1))
       {
-				TimeDiff(i+1) = TimeDiff(i+1) + TimeDiff(i);
-				deleteTimeDiff(i);
-				deletePose(i+1);
+        TimeDiff(i+1) = TimeDiff(i+1) + TimeDiff(i);
+        deleteTimeDiff(i);
+        deletePose(i+1);
       }
     }
   }
@@ -240,6 +240,17 @@ double TimedElasticBand::getSumOfAllTimeDiffs() const
       time += (*dt_it)->dt();
   }
   return time;
+}
+
+double TimedElasticBand::getAccumulatedDistance() const
+{
+  double dist = 0;
+
+  for(std::size_t i=1; i<sizePoses(); ++i)
+  {
+      dist += (Pose(i).position() - Pose(i-1).position()).norm();
+  }
+  return dist;
 }
 
 bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep, double timestep, int min_samples)
