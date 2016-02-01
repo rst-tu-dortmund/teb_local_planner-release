@@ -225,7 +225,7 @@ protected:
   bool transformGlobalPlan(const tf::TransformListener& tf, const std::vector<geometry_msgs::PoseStamped>& global_plan,
                            const tf::Stamped<tf::Pose>& global_pose,  const costmap_2d::Costmap2D& costmap,
                            const std::string& global_frame, std::vector<geometry_msgs::PoseStamped>& transformed_plan,
-                           unsigned int* current_goal_idx = NULL, tf::StampedTransform* tf_plan_to_global = NULL) const;
+                           int* current_goal_idx = NULL, tf::StampedTransform* tf_plan_to_global = NULL) const;
     
   /**
     * @brief Estimate the orientation of a pose from the global_plan that is treated as a local goal for the local planner.
@@ -258,8 +258,24 @@ protected:
    * @param max_vel_theta Maximum (absolute) angular velocity
    * @param max_vel_x_backwards Maximum translational velocity for backwards driving
    */
-  void saturateVelocity(double& v, double& omega, double max_vel_x, double max_vel_theta, double max_vel_x_backwards);
+  void saturateVelocity(double& v, double& omega, double max_vel_x, double max_vel_theta, double max_vel_x_backwards) const;
 
+  
+  /**
+   * @brief Convert translational and rotational velocities to a steering angle of a carlike robot
+   * 
+   * The conversion is based on the following equations:
+   * - The turning radius is defined by \f$ R = v/omega \f$
+   * - For a car like robot withe a distance L between both axles, the relation is: \f$ tan(\phi) = L/R \f$
+   * - phi denotes the steering angle.
+   * @remarks You might provide distances instead of velocities, since the temporal information is not required.
+   * @param v translational velocity [m/s]
+   * @param omega rotational velocity [rad/s]
+   * @param wheelbase distance between both axles (drive shaft and steering axle), the value might be negative for back_wheeled robots
+   * @param min_turning_radius Specify a lower bound on the turning radius
+   * @return Resulting steering angle in [rad] inbetween [-pi/2, pi/2]
+   */
+  double convertTransRotVelToSteeringAngle(double v, double omega, double wheelbase, double min_turning_radius = 0) const;
   
   
   // Definition of member variables
@@ -292,6 +308,8 @@ protected:
   PoseSE2 robot_goal_; //!< Store current robot goal
   Eigen::Vector2d robot_vel_; //!< Store current robot translational and angular velocity (v, omega)
   bool goal_reached_; //!< store whether the goal is reached or not
+  bool horizon_reduced_; //!< store flag whether the horizon should be reduced temporary
+  ros::Time horizon_reduced_stamp_; //!< Store at which time stamp the horizon reduction was requested
   
   std::vector<geometry_msgs::Point> footprint_spec_; //!< Store the footprint of the robot 
   double robot_inscribed_radius_; //!< The radius of the inscribed circle of the robot (collision possible)
