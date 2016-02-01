@@ -61,8 +61,8 @@ namespace teb_local_planner
 {
   
 
-TebLocalPlannerROS::TebLocalPlannerROS() : costmap_ros_(NULL), tf_(NULL), costmap_model_(NULL), dynamic_recfg_(NULL), goal_reached_(false), initialized_(false),
-                                           costmap_converter_loader_("costmap_converter", "costmap_converter::BaseCostmapToPolygons")
+TebLocalPlannerROS::TebLocalPlannerROS() : costmap_ros_(NULL), tf_(NULL), costmap_model_(NULL), dynamic_recfg_(NULL), goal_reached_(false), horizon_reduced_(false),
+                                           initialized_(false), costmap_converter_loader_("costmap_converter", "costmap_converter::BaseCostmapToPolygons")
 {
 }
 
@@ -121,7 +121,7 @@ void TebLocalPlannerROS::initialize(std::string name, tf::TransformListener* tf,
     global_frame_ = costmap_ros_->getGlobalFrameID();
     cfg_.map_frame = global_frame_; // TODO
     robot_base_frame_ = costmap_ros_->getBaseFrameID();
-    
+
     //Initialize a costmap to polygon converter
     if (!cfg_.obstacles.costmap_converter_plugin.empty())
     {
@@ -240,12 +240,27 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   
   // Transform global plan to the frame of interest (w.r.t to the local costmap)
   std::vector<geometry_msgs::PoseStamped> transformed_plan;
-  unsigned int goal_idx;
+  int goal_idx;
   tf::StampedTransform tf_plan_to_global;
   if (!transformGlobalPlan(*tf_, global_plan_, robot_pose, *costmap_, global_frame_, transformed_plan, &goal_idx, &tf_plan_to_global))
   {
     ROS_WARN("Could not transform the global plan to the frame of the controller");
     return false;
+  }
+  
+  // Check if the horizon should be reduced this run
+  if (horizon_reduced_)
+  {
+    // reduce to 50 percent:
+    int horizon_reduction = goal_idx/2;
+    // we have a small overhead here, since we already transformed 50% more of the trajectory.
+    // But that's ok for now, since we do not need to make transformGlobalPlan more complex 
+    // and a reduced horizon should occur just rarely.
+    int new_goal_idx_transformed_plan = int(transformed_plan.size()) - horizon_reduction - 1;
+    goal_idx -= horizon_reduction;
+    if (new_goal_idx_transformed_plan>0 && goal_idx >= 0)
+      transformed_plan.erase(transformed_plan.begin()+new_goal_idx_transformed_plan, transformed_plan.end());
+    else goal_idx += horizon_reduction; // this should not happy, but safety first ;-)
   }
   
   // check if global goal is reached
@@ -306,6 +321,13 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     ROS_WARN("teb_local_planner was not able to obtain a local plan for the current setting.");
     return false;
   }
+  
+  // Undo temporary horizon reduction
+  if (horizon_reduced_ && (ros::Time::now()-horizon_reduced_stamp_).toSec() >= 10 && !planner_->isHorizonReductionAppropriate(transformed_plan)) // 10s are hardcoded for now...
+  {
+    horizon_reduced_ = false;
+    ROS_INFO("Switching back to full horizon length.");
+  }
      
   // Check feasibility (but within the first few states only)
   bool feasible = planner_->isTrajectoryFeasible(costmap_model_, footprint_spec_, robot_inscribed_radius_, robot_circumscribed_radius, cfg_.trajectory.feasibility_check_no_poses);
@@ -313,10 +335,18 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   {
     cmd_vel.linear.x = 0;
     cmd_vel.angular.z = 0;
-    // TODO backup behavior
+   
+    if (!horizon_reduced_ && cfg_.trajectory.shrink_horizon_backup && planner_->isHorizonReductionAppropriate(transformed_plan))
+    {
+      horizon_reduced_ = true;
+      ROS_WARN("TebLocalPlannerROS: trajectory is not feasible, but the planner suggests a shorter horizon temporary. Complying with its wish for at least 10s...");
+      horizon_reduced_stamp_ = ros::Time::now();
+      return true; // commanded velocity is zero for this step
+    }
     // now we reset everything to start again with the initialization of new trajectories.
     planner_->clearPlanner();
     ROS_WARN("TebLocalPlannerROS: trajectory is not feasible. Resetting planner...");
+       
     return false;
   }
 
@@ -327,10 +357,25 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     ROS_WARN("TebLocalPlannerROS: velocity command invalid. Resetting planner...");
     return false;
   }
-
+  
   // Saturate velocity, if the optimization results violates the constraints (could be possible due to soft constraints).
   saturateVelocity(cmd_vel.linear.x, cmd_vel.angular.z, cfg_.robot.max_vel_x, cfg_.robot.max_vel_theta, cfg_.robot.max_vel_x_backwards);
-    
+
+  // convert rot-vel to steering angle if desired (carlike robot).
+  // The min_turning_radius is allowed to be slighly smaller since it is a soft-constraint
+  // and opposed to the other constraints not affected by penalty_epsilon. The user might add a safety margin to the parameter itself.
+  if (cfg_.robot.cmd_angle_instead_rotvel)
+  {
+    cmd_vel.angular.z = convertTransRotVelToSteeringAngle(cmd_vel.linear.x, cmd_vel.angular.z, cfg_.robot.wheelbase, 0.95*cfg_.robot.min_turning_radius);
+    if (!std::isfinite(cmd_vel.angular.z))
+    {
+      cmd_vel.linear.x = cmd_vel.angular.z = 0;
+      planner_->clearPlanner();
+      ROS_WARN("TebLocalPlannerROS: Resulting steering angle is not finite. Resetting planner...");
+      return false;
+    }
+  }
+  
   // Now visualize everything		    
   planner_->visualize();
   visualization_->publishObstacles(obstacles_);
@@ -548,7 +593,7 @@ bool TebLocalPlannerROS::pruneGlobalPlan(const tf::TransformListener& tf, const 
 
 bool TebLocalPlannerROS::transformGlobalPlan(const tf::TransformListener& tf, const std::vector<geometry_msgs::PoseStamped>& global_plan,
 		             const tf::Stamped<tf::Pose>& global_pose, const costmap_2d::Costmap2D& costmap, const std::string& global_frame,
-		             std::vector<geometry_msgs::PoseStamped>& transformed_plan, unsigned int* current_goal_idx, tf::StampedTransform* tf_plan_to_global) const
+		             std::vector<geometry_msgs::PoseStamped>& transformed_plan, int* current_goal_idx, tf::StampedTransform* tf_plan_to_global) const
 {
   // this method is a slightly modified version of base_local_planner/goal_functions.h
 
@@ -585,12 +630,12 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf::TransformListener& tf, co
                            // located on the border of the local costmap
     
 
-    unsigned int i = 0;
+    int i = 0;
     double sq_dist_threshold = dist_threshold * dist_threshold;
     double sq_dist = 0;
 
     //we need to loop to a point on the plan that is within a certain distance of the robot
-    while(i < (unsigned int)global_plan.size())
+    while(i < (int)global_plan.size())
     {
       double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
       double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
@@ -606,7 +651,7 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf::TransformListener& tf, co
     geometry_msgs::PoseStamped newer_pose;
 
     //now we'll transform until points are outside of our distance threshold
-    while(i < (unsigned int)global_plan.size() && sq_dist <= sq_dist_threshold)
+    while(i < (int)global_plan.size() && sq_dist <= sq_dist_threshold)
     {
       const geometry_msgs::PoseStamped& pose = global_plan[i];
       tf::poseStampedMsgToTF(pose, tf_pose);
@@ -700,7 +745,7 @@ double TebLocalPlannerROS::estimateLocalGoalOrientation(const std::vector<geomet
 }
       
       
-void TebLocalPlannerROS::saturateVelocity(double& v, double& omega, double max_vel_x, double max_vel_theta, double max_vel_x_backwards)
+void TebLocalPlannerROS::saturateVelocity(double& v, double& omega, double max_vel_x, double max_vel_theta, double max_vel_x_backwards) const
 {
   // Limit translational velocity for forward driving
   if (v > max_vel_x)
@@ -721,6 +766,19 @@ void TebLocalPlannerROS::saturateVelocity(double& v, double& omega, double max_v
     v = -max_vel_x_backwards;
 }
      
+     
+double TebLocalPlannerROS::convertTransRotVelToSteeringAngle(double v, double omega, double wheelbase, double min_turning_radius) const
+{
+  if (omega==0 || v==0)
+    return 0;
+    
+  double radius = v/omega;
+  
+  if (fabs(radius) < min_turning_radius)
+    radius = double(g2o::sign(radius)) * min_turning_radius; 
+
+  return std::atan(wheelbase / radius);
+}
      
      
 void TebLocalPlannerROS::customObstacleCB(const teb_local_planner::ObstacleMsg::ConstPtr& obst_msg)

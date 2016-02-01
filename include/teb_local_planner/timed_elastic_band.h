@@ -353,14 +353,14 @@ public:
    * 
    * The implemented algorithm subsamples the straight line between
    * start and goal using a given discretiziation width. \n
-   * The discretization width can be defined in the euclidian space
+   * The discretization width can be defined in the euclidean space
    * using the \c diststep parameter. Each time difference between two consecutive
    * poses is initialized to \c timestep. \n
    * If the \c diststep is chosen to be zero, 
    * the resulting trajectory contains the start and goal pose only.
    * @param start PoseSE2 defining the start of the trajectory
    * @param goal PoseSE2 defining the goal of the trajectory (final pose)
-   * @param diststep euclidian distance between two consecutive poses (if 0, no intermediate samples are inserted despite min_samples)
+   * @param diststep euclidean distance between two consecutive poses (if 0, no intermediate samples are inserted despite min_samples)
    * @param timestep intialization for the timediff between two consecutive poses
 	 * @param min_samples Minimum number of samples that should be initialized at least
    * @return true if everything was fine, false otherwise
@@ -390,9 +390,9 @@ public:
    * @param path_end end iterator of a generic 2d path
    * @param fun_position unary function that returns the Eigen::Vector2d object
    * @param max_vel_x maximum translational velocity used for determining time differences
-   * @param max_vel_y maximum angular velocity used for determining time differences
+   * @param max_vel_theta maximum angular velocity used for determining time differences
    * @param max_acc_x specify to satisfy a maxmimum transl. acceleration and decceleration (optional)
-   * @param max_acc_y specify to satisfy a maxmimum angular acceleration and decceleration (optional)
+   * @param max_acc_theta specify to satisfy a maxmimum angular acceleration and decceleration (optional)
    * @param start_orientation Orientation of the first pose of the trajectory (optional, otherwise use goal heading)
    * @param goal_orientation Orientation of the last pose of the trajectory (optional, otherwise use goal heading)
 	 * @param min_samples Minimum number of samples that should be initialized at least
@@ -441,7 +441,6 @@ public:
    * 
    * @param new_start New start pose (optional)
    * @param new_goal New goal pose (optional)
-   * @param max_goal_separation Maximum allowed distance between old and new goal, otherwise return \c false
    * @param min_samples Specify the minimum number of samples that should at least remain in the trajectory
    */  
   void updateAndPruneTEB(boost::optional<const PoseSE2&> new_start, boost::optional<const PoseSE2&> new_goal, int min_samples = 3);
@@ -527,7 +526,7 @@ public:
    *       Allows simple comparisons starting from the middle of the trajectory.
    * 
    * @param ref_line_start start of the reference line (2D position vector)
-	 * @param ref_line_start end of the reference line (2D position vector)
+	 * @param ref_line_end end of the reference line (2D position vector)
    * @param[out] distance [optional] the resulting minimum distance
    * @return Index to the closest pose in the pose sequence
    */
@@ -576,12 +575,16 @@ public:
    * @brief Check whether the trajectory is initialized (nonzero pose and timediff sequences)
    */
   bool isInit() const {return !timediff_vec_.empty() && !pose_vec_.empty();}
-				
+
   /**
    * @brief Calculate the total transition time (sum over all time intervals of the timediff sequence)
-   */		
+   */
   double getSumOfAllTimeDiffs() const;
   
+  /**
+   * @brief Calculate the length (accumulated euclidean distance) of the trajectory
+   */
+  double getAccumulatedDistance() const;
   
   /**
    * @brief Detect whether the trajectory contains detours.
@@ -594,7 +597,7 @@ public:
    * 	   e.g. the second pose is behind the start pose w.r.t. to the same goal heading.
    * 
    * Detours are not critical, but can be takein into account if multiple trajectory candidates are avaiable.
-   * @param treshold Threshold paramter for allowed orientation changes (below 0 -> greater than 90 deg)
+   * @param threshold Threshold paramter for allowed orientation changes (below 0 -> greater than 90 deg)
    * @return \c true if one of both cases mentioned above are satisfied, false otherwise
    */
   bool detectDetoursBackwards(double threshold=0) const;
