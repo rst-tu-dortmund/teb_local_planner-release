@@ -48,7 +48,7 @@ TebOptimalPlanner::TebOptimalPlanner() : cfg_(NULL), obstacles_(NULL), cost_(HUG
 {    
 }
   
-TebOptimalPlanner::TebOptimalPlanner(const TebConfig& cfg, std::vector<ObstaclePtr>* obstacles, TebVisualizationPtr visual)
+TebOptimalPlanner::TebOptimalPlanner(const TebConfig& cfg, ObstContainer* obstacles, TebVisualizationPtr visual)
 {    
   initialize(cfg, obstacles, visual);
 }
@@ -63,7 +63,7 @@ TebOptimalPlanner::~TebOptimalPlanner()
   //g2o::HyperGraphActionLibrary::destroy();
 }
 
-void TebOptimalPlanner::initialize(const TebConfig& cfg, std::vector<ObstaclePtr>* obstacles, TebVisualizationPtr visual)
+void TebOptimalPlanner::initialize(const TebConfig& cfg, ObstContainer* obstacles, TebVisualizationPtr visual)
 {    
   // init optimizer (set solver and block ordering settings)
   optimizer_ = initOptimizer();
@@ -367,7 +367,6 @@ void TebOptimalPlanner::AddEdgesObstacles()
   if (cfg_->optim.weight_point_obstacle==0 || obstacles_==NULL )
     return; // if weight equals zero skip adding edges!
 
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding obstacle edges ...");
   for (ObstContainer::const_iterator obst = obstacles_->begin(); obst != obstacles_->end(); ++obst)
   {
     if ((*obst)->isDynamic()) // we handle dynamic obstacles differently below
@@ -525,7 +524,6 @@ void TebOptimalPlanner::AddEdgesDynamicObstacles()
   
   Eigen::Matrix<double,1,1> information;
   information.fill(cfg_->optim.weight_dynamic_obstacle);
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding dynamic obstacle edges ...");
   
   for (ObstContainer::const_iterator obst = obstacles_->begin(); obst != obstacles_->end(); ++obst)
   {
@@ -551,7 +549,6 @@ void TebOptimalPlanner::AddEdgesVelocity()
   if (cfg_->optim.weight_max_vel_x==0 && cfg_->optim.weight_max_vel_theta==0)
     return; // if weight equals zero skip adding edges!
 
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding velocity edges ...");
   std::size_t NoBandpts(teb_.sizePoses());
   Eigen::Matrix<double,2,2> information;
   information.fill(0);
@@ -575,7 +572,6 @@ void TebOptimalPlanner::AddEdgesAcceleration()
   if (cfg_->optim.weight_acc_lim_x==0 && cfg_->optim.weight_acc_lim_theta==0) 
     return; // if weight equals zero skip adding edges!
 
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding acceleration edges ...");
   std::size_t NoBandpts(teb_.sizePoses());
   Eigen::Matrix<double,2,2> information;
   information.fill(0);
@@ -630,7 +626,6 @@ void TebOptimalPlanner::AddEdgesTimeOptimal()
   if (cfg_->optim.weight_optimaltime==0) 
     return; // if weight equals zero skip adding edges!
 
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding edges for optimal Time ...");
   Eigen::Matrix<double,1,1> information;
   information.fill(cfg_->optim.weight_optimaltime);
 
@@ -651,8 +646,6 @@ void TebOptimalPlanner::AddEdgesKinematicsDiffDrive()
   if (cfg_->optim.weight_kinematics_nh==0 && cfg_->optim.weight_kinematics_forward_drive==0)
     return; // if weight equals zero skip adding edges!
   
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding edges for kinematic constraints of a diffdrive robot ...");
-
   // create edge for satisfiying kinematic constraints
   Eigen::Matrix<double,2,2> information_kinematics;
   information_kinematics.fill(0.0);
@@ -675,8 +668,6 @@ void TebOptimalPlanner::AddEdgesKinematicsCarlike()
   if (cfg_->optim.weight_kinematics_nh==0 && cfg_->optim.weight_kinematics_turning_radius)
     return; // if weight equals zero skip adding edges!
   
-  ROS_DEBUG_COND(cfg_->optim.optimization_verbose, "Adding edges for kinematic constraints of a carlike robot ...");
-
   // create edge for satisfiying kinematic constraints
   Eigen::Matrix<double,2,2> information_kinematics;
   information_kinematics.fill(0.0);
@@ -932,6 +923,79 @@ bool TebOptimalPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* c
     }
   }
   return true;
+}
+
+
+bool TebOptimalPlanner::isHorizonReductionAppropriate(const std::vector<geometry_msgs::PoseStamped>& initial_plan) const
+{
+  if (teb_.sizePoses() < std::size_t( 1.5*double(cfg_->trajectory.min_samples) ) ) // trajectory is short already
+    return false;
+  
+  // check if distance is at least 2m long // hardcoded for now
+  double dist = 0;
+  for (std::size_t i=1; i < teb_.sizePoses(); ++i)
+  {
+    dist += ( teb_.Pose(i).position() - teb_.Pose(i-1).position() ).norm();
+    if (dist > 2)
+      break;
+  }
+  if (dist <= 2)
+    return false;
+  
+  // check if goal orientation is differing with more than 90° and the horizon is still long enough to exclude parking maneuvers.
+  // use case: Sometimes the robot accomplish the following navigation task:
+  // 1. wall following 2. 180° curve 3. following along the other side of the wall.
+  // If the trajectory is too long, the trajectory might intersect with the obstace and the optimizer does 
+  // push the trajectory to the correct side.
+  if ( std::abs( g2o::normalize_theta( teb_.Pose(0).theta() - teb_.BackPose().theta() ) ) > M_PI/2)
+  {
+    ROS_DEBUG("TebOptimalPlanner::isHorizonReductionAppropriate(): Goal orientation - start orientation > 90° ");
+    return true;
+  }
+  
+  // check if goal heading deviates more than 90° w.r.t. start orienation
+  if (teb_.Pose(0).orientationUnitVec().dot(teb_.BackPose().position() - teb_.Pose(0).position()) < 0)
+  {
+    ROS_DEBUG("TebOptimalPlanner::isHorizonReductionAppropriate(): Goal heading - start orientation > 90° ");
+    return true;
+  }
+    
+  // check ratio: distance along the inital plan and distance of the trajectory (maybe too much is cut off)
+  std::size_t idx=0; // first get point close to the robot (should be fast if the global path is already pruned!)
+  for (; idx < initial_plan.size(); ++idx)
+  {
+    if ( std::sqrt(std::pow(initial_plan[idx].pose.position.x-teb_.Pose(0).x(), 2) + std::pow(initial_plan[idx].pose.position.y-teb_.Pose(0).y(), 2)) )
+      break;
+  } 
+  // now calculate length
+  double ref_path_length = 0;
+  for (; idx < int(initial_plan.size())-1; ++idx)
+  {
+    ref_path_length += std::sqrt(std::pow(initial_plan[idx+1].pose.position.x-initial_plan[idx].pose.position.x, 2) 
+                     + std::pow(initial_plan[idx+1].pose.position.y-initial_plan[idx].pose.position.y, 2) );
+  } 
+  
+  // check distances along the teb trajectory (by the way, we also check if the distance between two poses is > obst_dist)
+  double teb_length = 0;
+  for (int i = 1; i < teb_.sizePoses(); ++i )
+  {
+    double dist = (teb_.Pose(i).position() - teb_.Pose(i-1).position()).norm();
+    if (dist > 0.95*cfg_->obstacles.min_obstacle_dist)
+    {
+      ROS_DEBUG("TebOptimalPlanner::isHorizonReductionAppropriate(): Distance between consecutive poses > 0.9*min_obstacle_dist");
+      return true;
+    }
+    ref_path_length += dist;
+  }
+  if (ref_path_length>0 && teb_length/ref_path_length < 0.7) // now check ratio
+  {
+    ROS_DEBUG("TebOptimalPlanner::isHorizonReductionAppropriate(): Planned trajectory is at least 30° shorter than the initial plan");
+    return true;
+  }
+  
+  
+  // otherwise we do not suggest shrinking the horizon:
+  return false;
 }
 
 } // namespace teb_local_planner

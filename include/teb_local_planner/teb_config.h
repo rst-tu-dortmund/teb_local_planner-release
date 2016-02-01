@@ -76,6 +76,7 @@ public:
     double force_reinit_new_goal_dist; //!< Reinitialize the trajectory if a previous goal is updated with a seperation of more than the specified value in meters (skip hot-starting)
     int feasibility_check_no_poses; //!< Specify up to which pose on the predicted plan the feasibility should be checked each sampling interval.
     bool publish_feedback; //!< Publish planner feedback containing the full trajectory and a list of active obstacles (should be enabled only for evaluation or debugging purposes)
+    bool shrink_horizon_backup; //!< Allows the planner to shrink the horizon temporary (50%) in case of automatically detected issues.
   } trajectory; //!< Trajectory related parameters
     
   //! Robot related parameters
@@ -87,6 +88,8 @@ public:
     double acc_lim_x; //!< Maximum translational acceleration of the robot
     double acc_lim_theta; //!< Maximum angular acceleration of the robot
     double min_turning_radius; //!< Minimum turning radius of a carlike robot (diff-drive robot: zero); 
+    double wheelbase; //!< The distance between the drive shaft and steering axle (only required for a carlike robot with 'cmd_angle_instead_rotvel' enabled); The value might be negative for back-wheeled robots!
+    bool cmd_angle_instead_rotvel; //!< Substitute the rotational velocity in the commanded velocity message by the corresponding steering angle (check 'axles_distance')
   } robot; //!< Robot related parameters
   
   //! Goal tolerance related parameters
@@ -189,6 +192,7 @@ public:
     trajectory.force_reinit_new_goal_dist = 1;
     trajectory.feasibility_check_no_poses = 5;
     trajectory.publish_feedback = false;
+    trajectory.shrink_horizon_backup = true;
     
     // Robot
          
@@ -198,11 +202,13 @@ public:
     robot.acc_lim_x = 0.5;
     robot.acc_lim_theta = 0.5;
     robot.min_turning_radius = 0;
+    robot.wheelbase = 1.0;
+    robot.cmd_angle_instead_rotvel = false;
     
     // GoalTolerance
     
     goal_tolerance.xy_goal_tolerance = 0.2;
-    goal_tolerance.yaw_goal_tolerance = 0.1;
+    goal_tolerance.yaw_goal_tolerance = 0.2;
     goal_tolerance.free_goal_vel = false;
     
     // Obstacles
@@ -233,8 +239,8 @@ public:
     optim.weight_kinematics_forward_drive = 1;
     optim.weight_kinematics_turning_radius = 1;
     optim.weight_optimaltime = 1;
-    optim.weight_point_obstacle = 50;
-    optim.weight_line_obstacle = 50;
+    optim.weight_point_obstacle = 10;
+    optim.weight_line_obstacle = 10;
     optim.weight_poly_obstacle = 10;
     optim.weight_dynamic_obstacle = 10;
     optim.alternative_time_cost = false;
@@ -251,7 +257,7 @@ public:
     hcp.roadmap_graph_no_samples = 15;
     hcp.roadmap_graph_area_width = 6; // [m]
     hcp.h_signature_prescaler = 1;
-    hcp.h_signature_threshold = 0.01;
+    hcp.h_signature_threshold = 0.1;
     
     hcp.visualize_hc_graph = false;
 
