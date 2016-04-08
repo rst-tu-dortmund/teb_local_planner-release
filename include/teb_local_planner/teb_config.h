@@ -73,6 +73,7 @@ public:
     double dt_hysteresis; //!< Hysteresis for automatic resizing depending on the current temporal resolution (dt): usually 10% of dt_ref
     int min_samples; //!< Minimum number of samples (should be always greater than 2)
     bool global_plan_overwrite_orientation; //!< Overwrite orientation of local subgoals provided by the global planner
+    double max_global_plan_lookahead_dist; //!< Specify maximum length (cumulative Euclidean distances) of the subset of the global plan taken into account for optimization [if <=0: disabled; the length is also bounded by the local costmap size!]
     double force_reinit_new_goal_dist; //!< Reinitialize the trajectory if a previous goal is updated with a seperation of more than the specified value in meters (skip hot-starting)
     int feasibility_check_no_poses; //!< Specify up to which pose on the predicted plan the feasibility should be checked each sampling interval.
     bool publish_feedback; //!< Publish planner feedback containing the full trajectory and a list of active obstacles (should be enabled only for evaluation or debugging purposes)
@@ -104,12 +105,9 @@ public:
   struct Obstacles
   {
     double min_obstacle_dist; //!< Minimum desired separation from obstacles
-    double costmap_emergency_stop_dist; //!< Force stop moving if the distance to costmap obstacles is below the given threshold
     bool include_costmap_obstacles; //!< Specify whether the obstacles in the costmap should be taken into account directly
-    bool costmap_obstacles_front_only; //!< Limit the considered costmap obstacles to the front of the robot (much more efficient)
+    double costmap_obstacles_behind_robot_dist; //!< Limit the occupied local costmap obstacles taken into account for planning behind the robot (specify distance in meters)
     int obstacle_poses_affected; //!< The obstacle position is attached to the closest pose on the trajectory to reduce computational effort, but take a number of neighbors into account as well
-    int line_obstacle_poses_affected; //!< See obstacle_poses_affected, but here for obstacles of line shape
-    int polygon_obstacle_poses_affected; //!< See obstacle_poses_affected, but here for obstacles of polygonial shape
     std::string costmap_converter_plugin; //!< Define a plugin name of the costmap_converter package (costmap cells are converted to points/lines/polygons)
     bool costmap_converter_spin_thread; //!< If \c true, the costmap converter invokes its callback queue in a different thread
     int costmap_converter_rate; //!< The rate that defines how often the costmap_converter plugin processes the current costmap (the value should not be much higher than the costmap update rate)
@@ -135,9 +133,7 @@ public:
     double weight_kinematics_forward_drive; //!< Optimization weight for forcing the robot to choose only forward directions (positive transl. velocities, only diffdrive robot)
     double weight_kinematics_turning_radius; //!< Optimization weight for enforcing a minimum turning radius (carlike robots)
     double weight_optimaltime; //!< Optimization weight for contracting the trajectory w.r.t transition time
-    double weight_point_obstacle; //!< Optimization weight for satisfying a minimum separation from point obstacles
-    double weight_line_obstacle; //!< Optimization weight for satisfying a minimum separation from polygon obstacles
-    double weight_poly_obstacle; //!< Optimization weight for satisfying a minimum separation from polygon obstacles
+    double weight_obstacle; //!< Optimization weight for satisfying a minimum separation from obstacles
     double weight_dynamic_obstacle; //!< Optimization weight for satisfying a minimum separation from dynamic obstacles
     bool alternative_time_cost; //!< Not in use yet...
     
@@ -189,6 +185,7 @@ public:
     trajectory.dt_hysteresis = 0.1;
     trajectory.min_samples = 3;
     trajectory.global_plan_overwrite_orientation = true;
+    trajectory.max_global_plan_lookahead_dist = 1;
     trajectory.force_reinit_new_goal_dist = 1;
     trajectory.feasibility_check_no_poses = 5;
     trajectory.publish_feedback = false;
@@ -214,12 +211,9 @@ public:
     // Obstacles
     
     obstacles.min_obstacle_dist = 0.5;
-    obstacles.costmap_emergency_stop_dist = 0.3;
     obstacles.include_costmap_obstacles = true;
-    obstacles.costmap_obstacles_front_only = true;
-    obstacles.obstacle_poses_affected = 10;
-    obstacles.line_obstacle_poses_affected = 25;
-    obstacles.polygon_obstacle_poses_affected = 25;
+    obstacles.costmap_obstacles_behind_robot_dist = 0.5;
+    obstacles.obstacle_poses_affected = 25;
     obstacles.costmap_converter_plugin = "";
     obstacles.costmap_converter_spin_thread = true;
     obstacles.costmap_converter_rate = 5;
@@ -239,9 +233,7 @@ public:
     optim.weight_kinematics_forward_drive = 1;
     optim.weight_kinematics_turning_radius = 1;
     optim.weight_optimaltime = 1;
-    optim.weight_point_obstacle = 10;
-    optim.weight_line_obstacle = 10;
-    optim.weight_poly_obstacle = 10;
+    optim.weight_obstacle = 10;
     optim.weight_dynamic_obstacle = 10;
     optim.alternative_time_cost = false;
     
@@ -287,6 +279,12 @@ public:
    * about some improper uses.
    */
   void checkParameters() const;
+  
+  /**
+   * @brief Check if some deprecated parameters are found and print warnings
+   * @param nh const reference to the local ros::NodeHandle
+   */
+  void checkDeprecated(const ros::NodeHandle& nh) const;
   
   /**
    * @brief Return the internal config mutex
