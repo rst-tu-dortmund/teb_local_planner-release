@@ -203,7 +203,7 @@ void TimedElasticBand::setTimeDiffVertexFixed(unsigned int index, bool status)
 void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_samples)
 {
   /// iterate through all TEB states only once and add/remove states!
-  for(unsigned int i=0; i < sizeTimeDiffs(); i++) // TimeDiff connects Point(i) with Point(i+1)
+  for(unsigned int i=0; i < sizeTimeDiffs(); ++i) // TimeDiff connects Point(i) with Point(i+1)
   {
     if(TimeDiff(i) > dt_ref + dt_hysteresis)
     {
@@ -214,8 +214,9 @@ void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_s
       TimeDiff(i) = newtime;
       insertPose(i+1, PoseSE2::average(Pose(i),Pose(i+1)) );
       insertTimeDiff(i+1,newtime);
+      
+      ++i; // skip the newly inserted pose
     }
-    
     else if(TimeDiff(i) < dt_ref - dt_hysteresis && sizeTimeDiffs()>min_samples) // only remove samples if size is larger than min_samples.
     {
       //ROS_DEBUG("teb_local_planner: autoResize() deleting bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
@@ -330,7 +331,7 @@ bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStampe
         addPoseAndTimeDiff(plan[i].pose.position.x, plan[i].pose.position.y, yaw, dt);
     }
     
-    PoseSE2 goal(plan.back().pose.position.x, plan.back().pose.position.y, tf::getYaw(plan.back().pose.orientation));
+    PoseSE2 goal(plan.back().pose);
     
     // if number of samples is not larger than min_samples, insert manually
     if ( (int)sizePoses() < min_samples-1 )
@@ -399,7 +400,7 @@ unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const 
   for (unsigned int i = 0; i < sizePoses(); i++)
   {
     Eigen::Vector2d point = Pose(i).position();
-    double diff = Obstacle::DistanceFromLineSegment(point, ref_line_start, ref_line_end);
+    double diff = distance_point_to_segment_2d(point, ref_line_start, ref_line_end);
     dist_vec.push_back(diff);
   }
 
@@ -421,7 +422,7 @@ unsigned int TimedElasticBand::findClosestTrajectoryPose(const Eigen::Ref<const 
   return index_min; // return index, because it's equal to the vertex, which represents this bandpoint
 }
 
-unsigned int TimedElasticBand::findClosestTrajectoryPose(const PolygonObstacle::VertexContainer& vertices, double* distance) const
+unsigned int TimedElasticBand::findClosestTrajectoryPose(const Point2dContainer& vertices, double* distance) const
 {
   if (vertices.empty())
     return 0;
@@ -440,9 +441,9 @@ unsigned int TimedElasticBand::findClosestTrajectoryPose(const PolygonObstacle::
     double diff = HUGE_VAL;
     for (int j = 0; j < (int) vertices.size()-1; ++j)
     {
-       diff = std::min(diff, Obstacle::DistanceFromLineSegment(point, vertices[j], vertices[j+1]));
+       diff = std::min(diff, distance_point_to_segment_2d(point, vertices[j], vertices[j+1]));
     }
-    diff = std::min(diff, Obstacle::DistanceFromLineSegment(point, vertices.back(), vertices.front()));
+    diff = std::min(diff, distance_point_to_segment_2d(point, vertices.back(), vertices.front()));
     dist_vec.push_back(diff);
   }
 
