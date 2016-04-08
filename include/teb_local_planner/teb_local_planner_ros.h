@@ -134,6 +134,11 @@ public:
     */
   bool isGoalReached();
   
+  
+    
+  /** @name Public utility functions/methods */
+  //@{
+  
     /**
     * @brief  Transform a tf::Pose type into a Eigen::Vector2d containing the translational and angular velocities.
     * 
@@ -143,6 +148,38 @@ public:
     */
   static Eigen::Vector2d tfPoseToEigenVector2dTransRot(const tf::Pose& tf_vel);
 
+  /**
+   * @brief Get the current robot footprint/contour model
+   * @param nh const reference to the local ros::NodeHandle
+   * @return Robot footprint model used for optimization
+   */
+  static RobotFootprintModelPtr getRobotFootprintFromParamServer(const ros::NodeHandle& nh);
+  
+    /** 
+   * @brief Set the footprint from the given XmlRpcValue.
+   * @remarks This method is copied from costmap_2d/footprint.h, since it is not declared public in all ros distros
+   * @remarks It is modified in order to return a container of Eigen::Vector2d instead of geometry_msgs::Point
+   * @param footprint_xmlrpc should be an array of arrays, where the top-level array should have 3 or more elements, and the
+   * sub-arrays should all have exactly 2 elements (x and y coordinates).
+   * @param full_param_name this is the full name of the rosparam from which the footprint_xmlrpc value came. 
+   * It is used only for reporting errors. 
+   * @return container of vertices describing the polygon
+   */
+  static Point2dContainer makeFootprintFromXMLRPC(XmlRpc::XmlRpcValue& footprint_xmlrpc, const std::string& full_param_name);
+  
+  /** 
+   * @brief Get a number from the given XmlRpcValue.
+   * @remarks This method is copied from costmap_2d/footprint.h, since it is not declared public in all ros distros
+   * @remarks It is modified in order to return a container of Eigen::Vector2d instead of geometry_msgs::Point
+   * @param value double value type
+   * @param full_param_name this is the full name of the rosparam from which the footprint_xmlrpc value came. 
+   * It is used only for reporting errors. 
+   * @returns double value
+   */
+  static double getNumberFromXMLRPC(XmlRpc::XmlRpcValue& value, const std::string& full_param_name);
+  
+  //@}
+  
 protected:
 
   /**
@@ -217,6 +254,7 @@ protected:
     * @param global_pose The global pose of the robot
     * @param costmap A reference to the costmap being used so the window size for transforming can be computed
     * @param global_frame The frame to transform the plan to
+    * @param max_plan_length Specify maximum length (cumulative Euclidean distances) of the transformed plan [if <=0: disabled; the length is also bounded by the local costmap size!]
     * @param[out] transformed_plan Populated with the transformed plan
     * @param[out] current_goal_idx Index of the current (local) goal pose in the global plan
     * @param[out] tf_plan_to_global Transformation between the global plan and the global planning frame
@@ -224,7 +262,7 @@ protected:
     */
   bool transformGlobalPlan(const tf::TransformListener& tf, const std::vector<geometry_msgs::PoseStamped>& global_plan,
                            const tf::Stamped<tf::Pose>& global_pose,  const costmap_2d::Costmap2D& costmap,
-                           const std::string& global_frame, std::vector<geometry_msgs::PoseStamped>& transformed_plan,
+                           const std::string& global_frame, double max_plan_length, std::vector<geometry_msgs::PoseStamped>& transformed_plan,
                            int* current_goal_idx = NULL, tf::StampedTransform* tf_plan_to_global = NULL) const;
     
   /**
@@ -278,6 +316,10 @@ protected:
   double convertTransRotVelToSteeringAngle(double v, double omega, double wheelbase, double min_turning_radius = 0) const;
   
   
+
+
+  
+private:
   // Definition of member variables
 
   // external objects (store weak pointers)
