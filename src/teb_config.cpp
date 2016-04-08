@@ -53,6 +53,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("dt_hysteresis", trajectory.dt_hysteresis, trajectory.dt_hysteresis);
   nh.param("min_samples", trajectory.min_samples, trajectory.min_samples);
   nh.param("global_plan_overwrite_orientation", trajectory.global_plan_overwrite_orientation, trajectory.global_plan_overwrite_orientation);
+  nh.param("max_global_plan_lookahead_dist", trajectory.max_global_plan_lookahead_dist, trajectory.max_global_plan_lookahead_dist);
   nh.param("force_reinit_new_goal_dist", trajectory.force_reinit_new_goal_dist, trajectory.force_reinit_new_goal_dist);
   nh.param("feasibility_check_no_poses", trajectory.feasibility_check_no_poses, trajectory.feasibility_check_no_poses);
   nh.param("publish_feedback", trajectory.publish_feedback, trajectory.publish_feedback);
@@ -75,12 +76,9 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   
   // Obstacles
   nh.param("min_obstacle_dist", obstacles.min_obstacle_dist, obstacles.min_obstacle_dist);
-  nh.param("costmap_emergency_stop_dist", obstacles.costmap_emergency_stop_dist, obstacles.costmap_emergency_stop_dist);
   nh.param("include_costmap_obstacles", obstacles.include_costmap_obstacles, obstacles.include_costmap_obstacles);
-  nh.param("costmap_obstacles_front_only", obstacles.costmap_obstacles_front_only, obstacles.costmap_obstacles_front_only);
+  nh.param("costmap_obstacles_behind_robot_dist", obstacles.costmap_obstacles_behind_robot_dist, obstacles.costmap_obstacles_behind_robot_dist);
   nh.param("obstacle_poses_affected", obstacles.obstacle_poses_affected, obstacles.obstacle_poses_affected);
-  nh.param("line_obstacle_poses_affected", obstacles.line_obstacle_poses_affected, obstacles.line_obstacle_poses_affected);
-  nh.param("polygon_obstacle_poses_affected", obstacles.polygon_obstacle_poses_affected, obstacles.polygon_obstacle_poses_affected);
   nh.param("costmap_converter_plugin", obstacles.costmap_converter_plugin, obstacles.costmap_converter_plugin);
   nh.param("costmap_converter_spin_thread", obstacles.costmap_converter_spin_thread, obstacles.costmap_converter_spin_thread);
   
@@ -98,9 +96,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("weight_kinematics_forward_drive", optim.weight_kinematics_forward_drive, optim.weight_kinematics_forward_drive);
   nh.param("weight_kinematics_turning_radius", optim.weight_kinematics_turning_radius, optim.weight_kinematics_turning_radius);
   nh.param("weight_optimaltime", optim.weight_optimaltime, optim.weight_optimaltime);
-  nh.param("weight_point_obstacle", optim.weight_point_obstacle, optim.weight_point_obstacle);
-  nh.param("weight_line_obstacle", optim.weight_line_obstacle, optim.weight_line_obstacle);
-  nh.param("weight_poly_obstacle", optim.weight_poly_obstacle, optim.weight_poly_obstacle);
+  nh.param("weight_obstacle", optim.weight_obstacle, optim.weight_obstacle);
   nh.param("weight_dynamic_obstacle", optim.weight_dynamic_obstacle, optim.weight_dynamic_obstacle);    
   nh.param("alternative_time_cost", optim.alternative_time_cost, optim.alternative_time_cost); 
   
@@ -118,6 +114,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("visualize_hc_graph", hcp.visualize_hc_graph, hcp.visualize_hc_graph); 
   
   checkParameters();
+  checkDeprecated(nh);
 }
 
 void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
@@ -129,6 +126,7 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   trajectory.dt_ref = cfg.dt_ref;
   trajectory.dt_hysteresis = cfg.dt_hysteresis;
   trajectory.global_plan_overwrite_orientation = cfg.global_plan_overwrite_orientation;
+  trajectory.max_global_plan_lookahead_dist = cfg.max_global_plan_lookahead_dist;
   trajectory.force_reinit_new_goal_dist = cfg.force_reinit_new_goal_dist;
   trajectory.feasibility_check_no_poses = cfg.feasibility_check_no_poses;
   trajectory.publish_feedback = cfg.publish_feedback;
@@ -151,12 +149,9 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   
   // Obstacles
   obstacles.min_obstacle_dist = cfg.min_obstacle_dist;
-  obstacles.costmap_emergency_stop_dist = cfg.costmap_emergency_stop_dist;
   obstacles.include_costmap_obstacles = cfg.include_costmap_obstacles;
-  obstacles.costmap_obstacles_front_only = cfg.costmap_obstacles_front_only;
+  obstacles.costmap_obstacles_behind_robot_dist = cfg.costmap_obstacles_behind_robot_dist;
   obstacles.obstacle_poses_affected = cfg.obstacle_poses_affected;
-  obstacles.line_obstacle_poses_affected = cfg.line_obstacle_poses_affected;
-  obstacles.polygon_obstacle_poses_affected = cfg.polygon_obstacle_poses_affected;
 
   
   // Optimization
@@ -173,9 +168,7 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   optim.weight_kinematics_forward_drive = cfg.weight_kinematics_forward_drive;
   optim.weight_kinematics_turning_radius = cfg.weight_kinematics_turning_radius;
   optim.weight_optimaltime = cfg.weight_optimaltime;
-  optim.weight_point_obstacle = cfg.weight_point_obstacle;
-  optim.weight_line_obstacle = cfg.weight_line_obstacle;
-  optim.weight_poly_obstacle = cfg.weight_poly_obstacle;
+  optim.weight_obstacle = cfg.weight_obstacle;
   optim.weight_dynamic_obstacle = cfg.weight_dynamic_obstacle;
   optim.alternative_time_cost = cfg.alternative_time_cost;
   
@@ -226,6 +219,10 @@ void TebConfig::checkParameters() const
   if (trajectory.min_samples <3)
     ROS_WARN("TebLocalPlannerROS() Param Warning: parameter min_samples is smaller than 3! Sorry, I haven't enough degrees of freedom to plan a trajectory for you. Please increase ...");
   
+  // costmap obstacle behind robot
+  if (obstacles.costmap_obstacles_behind_robot_dist < 0)
+    ROS_WARN("TebLocalPlannerROS() Param Warning: parameter 'costmap_obstacles_behind_robot_dist' should be positive or zero.");
+    
   // hcp: obstacle heading threshold
   if (hcp.obstacle_keypoint_offset>=1 || hcp.obstacle_keypoint_offset<=0)
     ROS_WARN("TebLocalPlannerROS() Param Warning: parameter obstacle_heading_threshold must be in the interval ]0,1[. 0=0deg opening angle, 1=90deg opening angle.");
@@ -238,5 +235,21 @@ void TebConfig::checkParameters() const
     ROS_WARN("TebLocalPlannerROS() Param Warning: parameter cmd_angle_instead_rotvel is non-zero but min_turning_radius is set to zero: undesired behavior. You are mixing a carlike and a diffdrive robot");
   
 }    
+
+void TebConfig::checkDeprecated(const ros::NodeHandle& nh) const
+{
+  if (nh.hasParam("line_obstacle_poses_affected") || nh.hasParam("polygon_obstacle_poses_affected"))
+    ROS_WARN("TebLocalPlannerROS() Param Warning: 'line_obstacle_poses_affected' and 'polygon_obstacle_poses_affected' are deprecated. They share now the common parameter 'obstacle_poses_affected'.");
+  
+  if (nh.hasParam("weight_point_obstacle") || nh.hasParam("weight_line_obstacle") || nh.hasParam("weight_poly_obstacle"))
+    ROS_WARN("TebLocalPlannerROS() Param Warning: 'weight_point_obstacle', 'weight_line_obstacle' and 'weight_poly_obstacle' are deprecated. They are replaced by the single param 'weight_obstacle'.");
+  
+  if (nh.hasParam("costmap_obstacles_front_only"))
+    ROS_WARN("TebLocalPlannerROS() Param Warning: 'costmap_obstacles_front_only' is deprecated. It is replaced by 'costmap_obstacles_behind_robot_dist' to define the actual area taken into account.");
+  
+  if (nh.hasParam("costmap_emergency_stop_dist"))
+    ROS_WARN("TebLocalPlannerROS() Param Warning: 'costmap_emergency_stop_dist' is deprecated. You can safely remove it from your parameter config.");
+}
+
     
 } // namespace teb_local_planner
