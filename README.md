@@ -1,3 +1,26 @@
+## teb_local_planner (indigo) - 0.3.1-1
+
+The packages in the `teb_local_planner` repository were released into the `indigo` distro by running `/usr/bin/bloom-release teb_local_planner --track indigo --rosdistro indigo` on `Thu, 14 Apr 2016 12:54:56 -0000`
+
+The `teb_local_planner` package was released.
+
+Version of package(s) in repository `teb_local_planner`:
+
+- upstream repository: https://github.com/rst-tu-dortmund/teb_local_planner.git
+- release repository: https://github.com/rst-tu-dortmund/teb_local_planner-release.git
+- rosdistro version: `0.3.0-0`
+- old version: `0.3.1-0`
+- new version: `0.3.1-1`
+
+Versions of tools used:
+
+- bloom version: `0.5.21`
+- catkin_pkg version: `0.2.10`
+- rosdep version: `0.11.4`
+- rosdistro version: `0.4.5`
+- vcstools version: `0.1.38`
+
+
 ## teb_local_planner (indigo) - 0.3.1-0
 
 The packages in the `teb_local_planner` repository were released into the `indigo` distro by running `/usr/bin/bloom-release teb_local_planner --track indigo --rosdistro indigo` on `Thu, 14 Apr 2016 12:51:29 -0000`
