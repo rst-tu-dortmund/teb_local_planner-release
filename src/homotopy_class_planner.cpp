@@ -678,7 +678,8 @@ void HomotopyClassPlanner::optimizeAllTEBs(unsigned int iter_innerloop, unsigned
     boost::thread_group teb_threads;
     for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
     {
-      teb_threads.create_thread( boost::bind(&TebOptimalPlanner::optimizeTEB, it_teb->get(), iter_innerloop, iter_outerloop, true) );
+      teb_threads.create_thread( boost::bind(&TebOptimalPlanner::optimizeTEB, it_teb->get(), iter_innerloop, iter_outerloop,
+                                             true, cfg_->hcp.selection_obst_cost_scale, cfg_->hcp.selection_alternative_time_cost) );
     }
     teb_threads.join_all();
   }
@@ -686,7 +687,8 @@ void HomotopyClassPlanner::optimizeAllTEBs(unsigned int iter_innerloop, unsigned
   {
     for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
     {
-      it_teb->get()->optimizeTEB(iter_innerloop,iter_outerloop, true); // compute cost as well inside optimizeTEB (last argument = true)
+      it_teb->get()->optimizeTEB(iter_innerloop,iter_outerloop, true, cfg_->hcp.selection_obst_cost_scale, 
+                                 cfg_->hcp.selection_alternative_time_cost); // compute cost as well inside optimizeTEB (last argument = true)
     }
   }
 } 
@@ -721,16 +723,27 @@ void HomotopyClassPlanner::deleteTebDetours(double threshold)
  
 TebOptimalPlannerPtr HomotopyClassPlanner::selectBestTeb()
 {
-  double min_cost = DBL_MAX; // maximum cost
+  double min_cost = std::numeric_limits<double>::max(); // maximum cost
   
-  best_teb_.reset(); // reset current best_teb pointer
+  // check if last best_teb is still a valid candidate
+  if (std::find(tebs_.begin(), tebs_.end(), best_teb_) != tebs_.end())
+  {
+    // get cost of this candidate
+    min_cost = best_teb_->getCurrentCost() * cfg_->hcp.selection_cost_hysteresis; // small hysteresis
+  }
+  else // the last candidate is not valid anymore
+    best_teb_.reset(); // reset pointer
 
   for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
   {
+    if (*it_teb == best_teb_)
+      continue; // skip already known cost value of the last best_teb
+    
     double teb_cost = it_teb->get()->getCurrentCost();
 
     if (teb_cost < min_cost)
     {
+      // check if this candidate is currently not selected
       best_teb_ = *it_teb;
       min_cost = teb_cost;
     }
@@ -749,7 +762,7 @@ int HomotopyClassPlanner::bestTebIdx() const
   int idx = 0;
   for (TebOptPlannerContainer::const_iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb, ++idx)
   {
-    if (it_teb->get() == best_teb_.get())
+    if (*it_teb == best_teb_)
       return idx;
   }
   return -1;  
@@ -774,11 +787,11 @@ bool HomotopyClassPlanner::isHorizonReductionAppropriate(const std::vector<geome
   return best->isHorizonReductionAppropriate(initial_plan);
 }
 
-void HomotopyClassPlanner::computeCurrentCost(std::vector<double>& cost)
+void HomotopyClassPlanner::computeCurrentCost(std::vector<double>& cost, double obst_cost_scale, bool alternative_time_cost)
 {
   for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
   {
-    it_teb->get()->computeCurrentCost(cost);
+    it_teb->get()->computeCurrentCost(cost, obst_cost_scale, alternative_time_cost);
   } 
 }
  
