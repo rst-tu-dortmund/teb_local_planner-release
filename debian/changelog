@@ -1,0 +1,180 @@
+ros-jade-teb-local-planner (0.4.0-0vivid) vivid; urgency=high
+
+  * The teb_local_planner supports a path-following mode (w.r.t. the global plan) and via-points now.
+    This allows the user to adapt the tradeoff between time-optimality and path-following.
+    Check out the new tutorial: "Following the Global Plan (Via-Points)".
+  * All external configuration and launch files are removed, since they are part
+    of the new teb_local_planner_tutorials package.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Mon, 18 Apr 2016 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.3.1-0vivid) vivid; urgency=high
+
+  * Fixed wrong coordinate transformation in 'line' and 'polygon' footprint models.
+  * Trajectory selection strategy in case of multiple topologies updated:
+    * The obstacle costs for selection can now be scaling separately.
+    * The cost regarding time optimality can now be replaced by the actual transition time.
+    * Added a hysteresis to cost comparison between a new and the previously selected trajectory.
+    * In the default parameter setting the strategy is similar to release 0.3.0.
+  * Warning message removed that occured if an odom message with only zeros was received.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Wed, 13 Apr 2016 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.3.0-0vivid) vivid; urgency=high
+
+  * Different/custom robot footprints are now supported and subject to optimization (refer to the new tutorial!).
+  * The new robot footprint is also visualized using the common marker topic.
+  * The strategy of taking occupied costmap cells behind the robot into account has been improved.
+    These changes significantly improve navigation close to walls.
+  * Parameter 'max_global_plan_lookahead_dist' added.
+    Previously, the complete subset of the global plan contained in the local costmap
+    was taken into account for choosing the current intermediate goal point. With this parameter, the maximum
+    length of the reference global plan can be limited. The actual global plan subset
+    is now computed using the logical conjunction of both local costmap size and 'max_global_plan_lookahead_dist'.
+  * Bug fixes:
+    * Fixed a compilation issue on ARM architectures
+    * If custom obstacles are used, the container with old obstacles is now cleared properly.
+  * Parameter cleanup:
+    * "weight_X_obstacle" parameters combined to single parameter "weight_obstacle".
+    * "X_obstacle_poses_affected" parameters combined to single parameter "obstacle_poses_affected".
+    * Deprecated parameter 'costmap_emergency_stop_dist' removed.
+  * Code cleanup
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Thu, 07 Apr 2016 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.2.3-0vivid) vivid; urgency=high
+
+  * Marker lifetime changed
+  * In case the local planner detects an infeasible trajectory it does now try to
+    reduce the horizon to 50 percent of the length. The trajectory is only reduced
+    if some predefined cases are detected.
+    This mechanism constitutes a backup behavior.
+  * Improved carlike robot support.
+    Instead of commanding the robot using translational and rotational velocities,
+    the robot might also be commanded using the transl. velocity and steering angle.
+    Appropriate parameters are added to the config.
+  * Changed default parameter for 'h_signature_threshold' from 0.01 to 0.1 to better match the actual precision.
+  * Some python scripts for data conversion added
+  * Minor other changes
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Sun, 31 Jan 2016 23:00:00 -0000
+
+ros-jade-teb-local-planner (0.2.2-0vivid) vivid; urgency=high
+
+  * Carlike robots (ackermann steering) are supported from now on (at least experimentally)
+    by specifying a minimum bound on the turning radius.
+    Currently, the output of the planner in carlike mode is still (v,omega).
+    Since I don't have any real carlike robot, I would be really happy if someone could provide me with
+    some feedback to further improve/extend the support.
+  * Obstacle cost function modified to avoid undesired jerks in the trajectory.
+  * Added a feedback message that contains current trajectory information (poses, velocities and temporal information).
+    This is useful for analyzing and debugging the velocity profile e.g. at runtime.
+    The message will be published only if it's activated (rosparam).
+    A small python script is added to plot the velocity profile (while *test_optim_node* runs).
+  * Cost functions are now taking the direction/sign of the translational velocity into account:
+    Specifying a maximum backwards velocity other than forward velocity works now.
+    Additionally, the change in acceleration is now computed correctly if the robot switches directions.
+  * The global plan is now pruned such that already passed posses are cut off
+    (relevant for global planners with *planning_rate=0*).
+  * Fixed issue#1: If a global planner with *planning_rate=0* was used,
+    a TF timing/extrapolation issue appeared after some time.
+  * The planner resets now properly if the velocity command cannot be computed due to invalid optimization results.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Sun, 10 Jan 2016 23:00:00 -0000
+
+ros-jade-teb-local-planner (0.2.1-0vivid) vivid; urgency=high
+
+  * This is an important bugfix release.
+  * Fixed a major issue concerning the stability and performance of the optimization process. Each time the global planner was updating the global plan, the local planner was resetted completely even if
+    the updated global plan did not differ from the previous one. This led to stupid reinitializations and a slighly jerky behavior if the update rate of the global planner was high (each 0.5-2s).
+    From now on the local planner is able to utilize the global plan as a warm start and determine automatically whether to reinitialize or not.
+  * Support for polygon obstacles extended and improved (e.g. the homotopy class planner does now compute actual distances to the polygon rather than utilizing the distance to the centroid).
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 29 Dec 2015 23:00:00 -0000
+
+ros-jade-teb-local-planner (0.2.0-0vivid) vivid; urgency=high
+
+  * The teb_local_planner supports costmap_converter plugins (pluginlib) from now on. Those plugins convert occupied costmap2d cells into polygon shapes.
+    The costmap_converter is disabled by default, since the extension still needs to be tested (parameter choices, computation time advantages, etc.).
+    A tutorial will explain how to activate the converter using the ros-param server.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 22 Dec 2015 23:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.11-0vivid) vivid; urgency=high
+
+  * This is a bugfix release (it fixes a lot of issues which occured frequently when the robot was close to the goal)
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Fri, 11 Dec 2015 23:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.10-0vivid) vivid; urgency=high
+
+  * The optimizer copies the global plan as initialization now instead of using a simple straight line approximation.
+  * Some bugfixes and improvements
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Wed, 12 Aug 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.9-0vivid) vivid; urgency=high
+
+  * Fixed a segmentation fault issue. This minor update is crucial for stability.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 23 Jun 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.8-0vivid) vivid; urgency=high
+
+  * Custom obstacles can be included via publishing dedicated messages
+  * Goal-reached-condition also checks orientation error (desired yaw) now
+  * Numerical improvements of the h-signature calculation
+  * Minor bugfixes
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Sun, 07 Jun 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.7-0vivid) vivid; urgency=high
+
+  * Finally fixed saucy compilation issue by retaining compatiblity to newer distros
+    (my "new" 13.10 VM helps me to stop spamming new releases for testing).
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Thu, 21 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.6-0vivid) vivid; urgency=high
+
+  * Fixed compilation errors on ubuntu saucy caused by different FindEigen.cmake scripts.
+    I am not able to test releasing on saucy, forcing me to release again and again. Sorry.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Thu, 21 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.5-0vivid) vivid; urgency=high
+
+  * Added possibility to dynamically change parameters of test_optim_node using dynamic reconfigure.
+  * Fixed a wrong default-min-max tuple in the dynamic reconfigure config.
+  * Useful config and launch files are now added to cmake install.
+  * Added install target for the test_optim_node executable.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Wed, 20 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.4-0vivid) vivid; urgency=high
+
+  * Fixed compilation errors on ROS Jade
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 19 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.3-0vivid) vivid; urgency=high
+
+  * Fixed compilation errors on ubuntu saucy
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Tue, 19 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.2-0vivid) vivid; urgency=high
+
+  * Removed unused include that could break compilation.
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Mon, 18 May 2015 22:00:00 -0000
+
+ros-jade-teb-local-planner (0.1.1-0vivid) vivid; urgency=high
+
+  * All files added to the indigo-devel branch
+  * Initial commit
+  * Contributors: Christoph Rösmann
+
+ -- Christoph Rösmann <christoph.roesmann@tu-dortmund.de>  Mon, 18 May 2015 22:00:00 -0000
+
+
