@@ -66,7 +66,8 @@ inline std::complex<long double> getCplxFromMsgPoseStamped(const geometry_msgs::
 };
 
 
-HomotopyClassPlanner::HomotopyClassPlanner() : cfg_(NULL), obstacles_(NULL), via_points_(NULL), initial_plan_(NULL), robot_model_(new PointRobotFootprint()), initialized_(false)
+HomotopyClassPlanner::HomotopyClassPlanner() : obstacles_(NULL), via_points_(NULL),  cfg_(NULL), robot_model_(new PointRobotFootprint()),
+                                               initial_plan_(NULL), initialized_(false)
 {
 }
   
@@ -634,7 +635,7 @@ void HomotopyClassPlanner::renewAndAnalyzeOldTebs(bool delete_detours)
  
 void HomotopyClassPlanner::updateReferenceTrajectoryViaPoints(bool all_trajectories)
 {
-  if ( (!all_trajectories && !initial_plan_) || cfg_->trajectory.global_plan_viapoint_sep < 0 || cfg_->optim.weight_viapoint <= 0)
+  if ( (!all_trajectories && !initial_plan_) || !via_points_ || via_points_->empty() || cfg_->optim.weight_viapoint <= 0)
     return;
   
   if(h_signatures_.size() < tebs_.size())
