@@ -61,20 +61,15 @@ namespace teb_local_planner
 {
   
 
-TebLocalPlannerROS::TebLocalPlannerROS() : costmap_ros_(NULL), tf_(NULL), costmap_model_(NULL), dynamic_recfg_(NULL), goal_reached_(false), horizon_reduced_(false),
-                                           initialized_(false), costmap_converter_loader_("costmap_converter", "costmap_converter::BaseCostmapToPolygons")
+TebLocalPlannerROS::TebLocalPlannerROS() : costmap_ros_(NULL), tf_(NULL), costmap_model_(NULL),
+                                           costmap_converter_loader_("costmap_converter", "costmap_converter::BaseCostmapToPolygons"), 
+                                           dynamic_recfg_(NULL), goal_reached_(false), horizon_reduced_(false), initialized_(false)
 {
 }
 
 
 TebLocalPlannerROS::~TebLocalPlannerROS()
 {
-  if (dynamic_recfg_!=NULL)
-    delete dynamic_recfg_;
-  if (tf_!=NULL)
-    delete tf_;
-  if (costmap_model_!=NULL)
-    delete costmap_model_;
 }
 
 void TebLocalPlannerROS::reconfigureCB(TebLocalPlannerReconfigureConfig& config, uint32_t level)
@@ -115,11 +110,11 @@ void TebLocalPlannerROS::initialize(std::string name, tf::TransformListener* tf,
     }
     
     // init other variables
-    tf_ = new tf::TransformListener;
+    tf_ = tf;
     costmap_ros_ = costmap_ros;
     costmap_ = costmap_ros_->getCostmap(); // locking should be done in MoveBase.
     
-    costmap_model_ = new base_local_planner::CostmapModel(*costmap_);
+    costmap_model_ = boost::make_shared<base_local_planner::CostmapModel>(*costmap_);
 
     global_frame_ = costmap_ros_->getGlobalFrameID();
     cfg_.map_frame = global_frame_; // TODO
@@ -134,7 +129,7 @@ void TebLocalPlannerROS::initialize(std::string name, tf::TransformListener* tf,
         std::string converter_name = costmap_converter_loader_.getName(cfg_.obstacles.costmap_converter_plugin);
         // replace '::' by '/' to convert the c++ namespace to a NodeHandle namespace
         boost::replace_all(converter_name, "::", "/");
-        costmap_converter_->initialize(ros::NodeHandle(nh, converter_name));
+        costmap_converter_->initialize(ros::NodeHandle(nh, "costmap_converter/" + converter_name));
         costmap_converter_->setCostmap2D(costmap_);
         
         costmap_converter_->startWorker(ros::Rate(cfg_.obstacles.costmap_converter_rate), costmap_, cfg_.obstacles.costmap_converter_spin_thread);
@@ -158,7 +153,7 @@ void TebLocalPlannerROS::initialize(std::string name, tf::TransformListener* tf,
     odom_helper_.setOdomTopic(cfg_.odom_topic);
 
     // setup dynamic reconfigure
-    dynamic_recfg_ = new dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig>(nh);
+    dynamic_recfg_ = boost::make_shared< dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig> >(nh);
     dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig>::CallbackType cb = boost::bind(&TebLocalPlannerROS::reconfigureCB, this, _1, _2);
     dynamic_recfg_->setCallback(cb);
         
@@ -328,7 +323,7 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   }
      
   // Check feasibility (but within the first few states only)
-  bool feasible = planner_->isTrajectoryFeasible(costmap_model_, footprint_spec_, robot_inscribed_radius_, robot_circumscribed_radius, cfg_.trajectory.feasibility_check_no_poses);
+  bool feasible = planner_->isTrajectoryFeasible(costmap_model_.get(), footprint_spec_, robot_inscribed_radius_, robot_circumscribed_radius, cfg_.trajectory.feasibility_check_no_poses);
   if (!feasible)
   {
     cmd_vel.linear.x = 0;
@@ -434,7 +429,7 @@ void TebLocalPlannerROS::updateObstacleContainerWithCostmapConverter()
   if (!polygons)
     return;
   
-  for (int i=0; i<polygons->size(); ++i)
+  for (std::size_t i=0; i<polygons->size(); ++i)
   {
     if (polygons->at(i).points.size()==1) // Point
     {
@@ -448,7 +443,7 @@ void TebLocalPlannerROS::updateObstacleContainerWithCostmapConverter()
     else if (polygons->at(i).points.size()>2) // Real polygon
     {
         PolygonObstacle* polyobst = new PolygonObstacle;
-        for (int j=0; j<polygons->at(i).points.size(); ++j)
+        for (std::size_t j=0; j<polygons->at(i).points.size(); ++j)
         {
             polyobst->pushBackVertex(polygons->at(i).points[j].x, polygons->at(i).points[j].y);
         }
@@ -526,7 +521,7 @@ void TebLocalPlannerROS::updateViaPointsContainer(const std::vector<geometry_msg
     // check separation to the previous via-point inserted
     if (distance_points2d( transformed_plan[prev_idx].pose.position, transformed_plan[i].pose.position ) < min_separation)
       continue;
-    
+        
     // add via-point
     via_points_.push_back( Eigen::Vector2d( transformed_plan[i].pose.position.x, transformed_plan[i].pose.position.y ) );
     prev_idx = i;
@@ -600,7 +595,7 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf::TransformListener& tf, co
 
   try 
   {
-    if (!global_plan.size() > 0)
+    if (global_plan.empty())
     {
       ROS_ERROR("Received plan with zero length");
       *current_goal_idx = 0;
@@ -629,26 +624,28 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf::TransformListener& tf, co
 
     int i = 0;
     double sq_dist_threshold = dist_threshold * dist_threshold;
-    double sq_dist = 0;
-
+    double sq_dist = 1e10;
+    
     //we need to loop to a point on the plan that is within a certain distance of the robot
     while(i < (int)global_plan.size())
     {
       double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
       double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
-      sq_dist = x_diff * x_diff + y_diff * y_diff;
-      if (sq_dist <= sq_dist_threshold) 
+      double new_sq_dist = x_diff * x_diff + y_diff * y_diff;
+      if (new_sq_dist > sq_dist && sq_dist < sq_dist_threshold) // find first distance that is greater
       {
+        sq_dist = new_sq_dist;
         break;
       }
+      sq_dist = new_sq_dist;
       ++i;
     }
-
+    
     tf::Stamped<tf::Pose> tf_pose;
     geometry_msgs::PoseStamped newer_pose;
     
     double plan_length = 0; // check cumulative Euclidean distance along the plan
-
+    
     //now we'll transform until points are outside of our distance threshold
     while(i < (int)global_plan.size() && sq_dist <= sq_dist_threshold && (max_plan_length<=0 || plan_length <= max_plan_length))
     {
