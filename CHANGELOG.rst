@@ -2,7 +2,7 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.4.1 (2016-05-20)
+0.5.0 (2016-05-20)
 ------------------
 * Wrong parameter namespace for *costmap_converter* plugins fixed
 * Compiler warnings fixed
