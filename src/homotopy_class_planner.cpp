@@ -66,8 +66,7 @@ inline std::complex<long double> getCplxFromMsgPoseStamped(const geometry_msgs::
 };
 
 
-HomotopyClassPlanner::HomotopyClassPlanner() : obstacles_(NULL), via_points_(NULL),  cfg_(NULL), robot_model_(new PointRobotFootprint()),
-                                               initial_plan_(NULL), initialized_(false)
+HomotopyClassPlanner::HomotopyClassPlanner() : cfg_(NULL), obstacles_(NULL), via_points_(NULL), robot_model_(new PointRobotFootprint()), initial_plan_(NULL), initialized_(false)
 {
 }
   
@@ -119,8 +118,8 @@ bool HomotopyClassPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& i
     
   PoseSE2 start(initial_plan.front().pose);
   PoseSE2 goal(initial_plan.back().pose);
-  Eigen::Vector2d vel = start_vel ?  Eigen::Vector2d( start_vel->linear.x, start_vel->angular.z ) : Eigen::Vector2d::Zero();
-  return plan(start, goal, vel, free_goal_vel);
+
+  return plan(start, goal, start_vel, free_goal_vel);
 }
 
 
@@ -129,16 +128,15 @@ bool HomotopyClassPlanner::plan(const tf::Pose& start, const tf::Pose& goal, con
   ROS_ASSERT_MSG(initialized_, "Call initialize() first.");
   PoseSE2 start_pose(start);
   PoseSE2 goal_pose(goal);
-  Eigen::Vector2d vel = start_vel ?  Eigen::Vector2d( start_vel->linear.x, start_vel->angular.z ) : Eigen::Vector2d::Zero();
-  return plan(start_pose, goal_pose, vel, free_goal_vel);
+  return plan(start_pose, goal_pose, start_vel, free_goal_vel);
 }
 
-bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const Eigen::Vector2d& start_vel, bool free_goal_vel)
+bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::Twist* start_vel, bool free_goal_vel)
 {	
   ROS_ASSERT_MSG(initialized_, "Call initialize() first.");
   
   // Update old TEBs with new start, goal and velocity
-  updateAllTEBs(start, goal, start_vel);
+  updateAllTEBs(&start, &goal, start_vel);
     
   // Init new TEBs based on newly explored homotopy classes
   exploreHomotopyClassesAndInitTebs(start, goal, cfg_->obstacles.min_obstacle_dist);
@@ -155,17 +153,18 @@ bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const
   return true;
 } 
  
-bool HomotopyClassPlanner::getVelocityCommand(double& v, double& omega) const
+bool HomotopyClassPlanner::getVelocityCommand(double& vx, double& vy, double& omega) const
 {
   TebOptimalPlannerConstPtr best_teb = bestTeb();
   if (!best_teb)
   {
-    v = 0;
+    vx = 0;
+    vy = 0;
     omega = 0;
     return false;
   }
  
-  return best_teb->getVelocityCommand(v, omega); 
+  return best_teb->getVelocityCommand(vx, vy, omega); 
 }
 
 
@@ -358,13 +357,17 @@ void HomotopyClassPlanner::createProbRoadmapGraph(const PoseSE2& start, const Po
   
   double area_width = cfg_->hcp.roadmap_graph_area_width;
     
-  boost::random::uniform_real_distribution<double> distribution_x(0, start_goal_dist);  
+  boost::random::uniform_real_distribution<double> distribution_x(0, start_goal_dist * cfg_->hcp.roadmap_graph_area_length_scale);  
   boost::random::uniform_real_distribution<double> distribution_y(0, area_width); 
   
   double phi = atan2(diff.coeffRef(1),diff.coeffRef(0)); // rotate area by this angle
   Eigen::Rotation2D<double> rot_phi(phi);
   
-  Eigen::Vector2d area_origin = start.position() - 0.5*area_width*normal; // bottom left corner of the origin
+  Eigen::Vector2d area_origin;
+  if (cfg_->hcp.roadmap_graph_area_length_scale != 1.0)
+    area_origin = start.position() + 0.5*(1.0-cfg_->hcp.roadmap_graph_area_length_scale)*start_goal_dist*diff.normalized() - 0.5*area_width*normal; // bottom left corner of the origin
+  else
+    area_origin = start.position() - 0.5*area_width*normal; // bottom left corner of the origin
   
   // Insert Vertices
   HcGraphVertexType start_vtx = boost::add_vertex(graph_); // start vertex
@@ -691,7 +694,7 @@ void HomotopyClassPlanner::addAndInitNewTeb(const std::vector<geometry_msgs::Pos
   tebs_.back()->teb().initTEBtoGoal(*initial_plan_, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples); 
 }
 
-void HomotopyClassPlanner::updateAllTEBs(boost::optional<const PoseSE2&> start, boost::optional<const PoseSE2&> goal,  boost::optional<const Eigen::Vector2d&> start_velocity)
+void HomotopyClassPlanner::updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const geometry_msgs::Twist* start_velocity)
 {
   // If new goal is too far away, clear all existing trajectories to let them reinitialize later.
   // Since all Tebs are sharing the same fixed goal pose, just take the first candidate:
@@ -708,14 +711,14 @@ void HomotopyClassPlanner::updateAllTEBs(boost::optional<const PoseSE2&> start, 
   // hot-start from previous solutions
   for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
   {
-    it_teb->get()->teb().updateAndPruneTEB(start, goal);
+    it_teb->get()->teb().updateAndPruneTEB(*start, *goal);
     if (start_velocity)
       it_teb->get()->setVelocityStart(*start_velocity);
   }
 }
 
  
-void HomotopyClassPlanner::optimizeAllTEBs(unsigned int iter_innerloop, unsigned int iter_outerloop)
+void HomotopyClassPlanner::optimizeAllTEBs(int iter_innerloop, int iter_outerloop)
 {
   // optimize TEBs in parallel since they are independend of each other
   if (cfg_->hcp.enable_multithreading)

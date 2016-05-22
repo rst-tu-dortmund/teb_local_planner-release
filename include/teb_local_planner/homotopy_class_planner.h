@@ -176,7 +176,7 @@ public:
    * according to an initial reference plan (given as a container of poses).
    * @warning The current implementation extracts only the start and goal pose and calls the overloaded plan()
    * @param initial_plan vector of geometry_msgs::PoseStamped (must be valid until clearPlanner() is called!)
-   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x and angular.z are used)
+   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x, linear.y (holonomic) and angular.z are used)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
@@ -189,7 +189,7 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized between a given start and goal pose.
    * @param start tf::Pose containing the start pose of the trajectory
    * @param goal tf::Pose containing the goal pose of the trajectory
-   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x and angular.z are used)
+   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x, linear.y (holonomic) and angular.z are used)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
@@ -202,21 +202,22 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized between a given start and goal pose.
    * @param start PoseSE2 containing the start pose of the trajectory
    * @param goal PoseSE2 containing the goal pose of the trajectory
-   * @param start_vel Initial velocity at the start pose (2D vector containing the translational and angular velocity).
+   * @param start_vel Initial velocity at the start pose (twist message containing the translational and angular velocity).
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
    */
-  virtual bool plan(const PoseSE2& start, const PoseSE2& goal, const Eigen::Vector2d& start_vel, bool free_goal_vel=false);
+  virtual bool plan(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::Twist* start_vel = NULL, bool free_goal_vel=false);
   
   /**
    * @brief Get the velocity command from a previously optimized plan to control the robot at the current sampling interval.
    * @warning Call plan() first and check if the generated plan is feasible.
-   * @param[out] v translational velocity [m/s]
+   * @param[out] vx translational velocity [m/s]
+   * @param[out] vy strafing velocity which can be nonzero for holonomic robots [m/s] 
    * @param[out] omega rotational velocity [rad/s]
    * @return \c true if command is valid, \c false otherwise
    */
-  virtual bool getVelocityCommand(double& v, double& omega) const;
+  virtual bool getVelocityCommand(double& vx, double& vy, double& omega) const;
   
   /**
    * @brief Access current best trajectory candidate (that relates to the "best" homotopy class).
@@ -329,7 +330,7 @@ public:
    * @param goal New goal pose (optional)
    * @param start_velocity start velocity (optional)
    */
-  void updateAllTEBs(boost::optional<const PoseSE2&> start, boost::optional<const PoseSE2&> goal,  boost::optional<const Eigen::Vector2d&> start_velocity);
+  void updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const geometry_msgs::Twist* start_velocity);
   
   
   /**
@@ -339,7 +340,7 @@ public:
    * @param iter_innerloop Number of inner iterations (see TebOptimalPlanner::optimizeTEB())
    * @param iter_outerloop Number of outer iterations (see TebOptimalPlanner::optimizeTEB())
    */
-  void optimizeAllTEBs(unsigned int iter_innerloop, unsigned int iter_outerloop);
+  void optimizeAllTEBs(int iter_innerloop, int iter_outerloop);
   
   /**
    * @brief In case of multiple, internally stored, alternative trajectories, select the best one according to their cost values.
@@ -524,9 +525,9 @@ protected:
   
     
   // external objects (store weak pointers)
+  const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
   ObstContainer* obstacles_; //!< Store obstacles that are relevant for planning
   const ViaPointContainer* via_points_; //!< Store the current list of via-points
-  const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
   
   // internal objects (memory management owned)
   TebVisualizationPtr visualization_; //!< Instance of the visualization class (local/global plan, obstacles, ...)

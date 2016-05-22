@@ -87,8 +87,10 @@ public:
   {
     double max_vel_x; //!< Maximum translational velocity of the robot
     double max_vel_x_backwards; //!< Maximum translational velocity of the robot for driving backwards
+    double max_vel_y; //!< Maximum strafing velocity of the robot (should be zero for non-holonomic robots!)
     double max_vel_theta; //!< Maximum angular velocity of the robot
     double acc_lim_x; //!< Maximum translational acceleration of the robot
+    double acc_lim_y; //!< Maximum strafing acceleration of the robot
     double acc_lim_theta; //!< Maximum angular acceleration of the robot
     double min_turning_radius; //!< Minimum turning radius of a carlike robot (diff-drive robot: zero); 
     double wheelbase; //!< The distance between the drive shaft and steering axle (only required for a carlike robot with 'cmd_angle_instead_rotvel' enabled); The value might be negative for back-wheeled robots!
@@ -128,8 +130,10 @@ public:
     double penalty_epsilon; //!< Add a small safety margin to penalty functions for hard-constraint approximations
     
     double weight_max_vel_x; //!< Optimization weight for satisfying the maximum allowed translational velocity
+    double weight_max_vel_y; //!< Optimization weight for satisfying the maximum allowed strafing velocity (in use only for holonomic robots)
     double weight_max_vel_theta; //!< Optimization weight for satisfying the maximum allowed angular velocity
     double weight_acc_lim_x; //!< Optimization weight for satisfying the maximum allowed translational acceleration
+    double weight_acc_lim_y; //!< Optimization weight for satisfying the maximum allowed strafing acceleration (in use only for holonomic robots)
     double weight_acc_lim_theta; //!< Optimization weight for satisfying the maximum allowed angular acceleration
     double weight_kinematics_nh; //!< Optimization weight for satisfying the non-holonomic kinematics
     double weight_kinematics_forward_drive; //!< Optimization weight for forcing the robot to choose only forward directions (positive transl. velocities, only diffdrive robot)
@@ -154,6 +158,7 @@ public:
     
     int roadmap_graph_no_samples; //! < Specify the number of samples generated for creating the roadmap graph, if simple_exploration is turend off.
     double roadmap_graph_area_width; //!< Random keypoints/waypoints are sampled in a rectangular region between start and goal. Specify the width of that region in meters.
+    double roadmap_graph_area_length_scale; //!< The length of the rectangular region is determined by the distance between start and goal. This parameter further scales the distance such that the geometric center remains equal!
     double h_signature_prescaler; //!< Scale number of obstacle value in order to allow huge number of obstacles. Do not choose it extremly low, otherwise obstacles cannot be distinguished from each other (0.2<H<=1).
     double h_signature_threshold; //!< Two h-signatures are assumed to be equal, if both the difference of real parts and complex parts are below the specified threshold.
     
@@ -204,8 +209,10 @@ public:
          
     robot.max_vel_x = 0.4;
     robot.max_vel_x_backwards = 0.2;
+    robot.max_vel_y = 0.0;
     robot.max_vel_theta = 0.3;
     robot.acc_lim_x = 0.5;
+    robot.acc_lim_y = 0.5;
     robot.acc_lim_theta = 0.5;
     robot.min_turning_radius = 0;
     robot.wheelbase = 1.0;
@@ -235,8 +242,10 @@ public:
     optim.optimization_verbose = false;
     optim.penalty_epsilon = 0.1;
     optim.weight_max_vel_x = 2; //1
+    optim.weight_max_vel_y = 2;
     optim.weight_max_vel_theta = 1;
     optim.weight_acc_lim_x = 1;
+    optim.weight_acc_lim_y = 1;
     optim.weight_acc_lim_theta = 1;
     optim.weight_kinematics_nh = 1000;
     optim.weight_kinematics_forward_drive = 1;
@@ -261,6 +270,7 @@ public:
     hcp.obstacle_heading_threshold = 0.45; 
     hcp.roadmap_graph_no_samples = 15;
     hcp.roadmap_graph_area_width = 6; // [m]
+    hcp.roadmap_graph_area_length_scale = 1.0;
     hcp.h_signature_prescaler = 1;
     hcp.h_signature_threshold = 0.1;
     
