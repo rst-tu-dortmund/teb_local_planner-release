@@ -66,7 +66,8 @@ inline std::complex<long double> getCplxFromMsgPoseStamped(const geometry_msgs::
 };
 
 
-HomotopyClassPlanner::HomotopyClassPlanner() : cfg_(NULL), obstacles_(NULL), via_points_(NULL), robot_model_(new PointRobotFootprint()), initial_plan_(NULL), initialized_(false)
+HomotopyClassPlanner::HomotopyClassPlanner() : obstacles_(NULL), via_points_(NULL),  cfg_(NULL), robot_model_(new PointRobotFootprint()),
+                                               initial_plan_(NULL), initialized_(false)
 {
 }
   
@@ -107,19 +108,12 @@ bool HomotopyClassPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& i
   // store initial plan for further initializations (must be valid for the lifetime of this object or clearPlanner() is called!)
   initial_plan_ = &initial_plan;
   // store the h signature of the initial plan to enable searching a matching teb later.
-  if (initial_plan_ && cfg_->trajectory.global_plan_viapoint_sep >= 0 && cfg_->optim.weight_viapoint > 0)
-    initial_plan_h_sig_ = calculateHSignature(initial_plan.begin(), initial_plan.end(), getCplxFromMsgPoseStamped, obstacles_, cfg_->hcp.h_signature_prescaler);
-  else
-    initial_plan_h_sig_ = std::complex<long double>(0.0, 0.0);
-  
-  // if no teb has been planned before or if they have been deleted, use the initial plan as candidate
-  if (tebs_.empty() && initial_plan_)
-    addAndInitNewTeb(*initial_plan_);
+  initial_plan_h_sig_ = calculateHSignature(initial_plan.begin(), initial_plan.end(), getCplxFromMsgPoseStamped, obstacles_, cfg_->hcp.h_signature_prescaler);
     
   PoseSE2 start(initial_plan.front().pose);
   PoseSE2 goal(initial_plan.back().pose);
-
-  return plan(start, goal, start_vel, free_goal_vel);
+  Eigen::Vector2d vel = start_vel ?  Eigen::Vector2d( start_vel->linear.x, start_vel->angular.z ) : Eigen::Vector2d::Zero();
+  return plan(start, goal, vel, free_goal_vel);
 }
 
 
@@ -128,18 +122,19 @@ bool HomotopyClassPlanner::plan(const tf::Pose& start, const tf::Pose& goal, con
   ROS_ASSERT_MSG(initialized_, "Call initialize() first.");
   PoseSE2 start_pose(start);
   PoseSE2 goal_pose(goal);
-  return plan(start_pose, goal_pose, start_vel, free_goal_vel);
+  Eigen::Vector2d vel = start_vel ?  Eigen::Vector2d( start_vel->linear.x, start_vel->angular.z ) : Eigen::Vector2d::Zero();
+  return plan(start_pose, goal_pose, vel, free_goal_vel);
 }
 
-bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::Twist* start_vel, bool free_goal_vel)
+bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const Eigen::Vector2d& start_vel, bool free_goal_vel)
 {	
   ROS_ASSERT_MSG(initialized_, "Call initialize() first.");
   
   // Update old TEBs with new start, goal and velocity
-  updateAllTEBs(&start, &goal, start_vel);
+  updateAllTEBs(start, goal, start_vel);
     
   // Init new TEBs based on newly explored homotopy classes
-  exploreHomotopyClassesAndInitTebs(start, goal, cfg_->obstacles.min_obstacle_dist);
+  exploreHomotopyClassesAndInitTebs(start, goal, cfg_->obstacles.min_obstacle_dist, start_vel);
   // update via-points if activated
   updateReferenceTrajectoryViaPoints(cfg_->hcp.viapoints_all_candidates);
   // Optimize all trajectories in alternative homotopy classes
@@ -153,18 +148,17 @@ bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const
   return true;
 } 
  
-bool HomotopyClassPlanner::getVelocityCommand(double& vx, double& vy, double& omega) const
+bool HomotopyClassPlanner::getVelocityCommand(double& v, double& omega) const
 {
   TebOptimalPlannerConstPtr best_teb = bestTeb();
   if (!best_teb)
   {
-    vx = 0;
-    vy = 0;
+    v = 0;
     omega = 0;
     return false;
   }
  
-  return best_teb->getVelocityCommand(vx, vy, omega); 
+  return best_teb->getVelocityCommand(v, omega); 
 }
 
 
@@ -205,7 +199,7 @@ void HomotopyClassPlanner::visualize()
 
 
 
-void HomotopyClassPlanner::createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold)
+void HomotopyClassPlanner::createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   // Clear existing graph and paths
   clearGraph();
@@ -219,7 +213,7 @@ void HomotopyClassPlanner::createGraph(const PoseSE2& start, const PoseSE2& goal
     if (tebs_.empty())
     {
       ROS_INFO("HomotopyClassPlanner::createProbRoadmapGraph(): Initializing a small straight line to just correct orientation errors.");
-      addAndInitNewTeb(start, goal);
+      addAndInitNewTeb(start, goal, start_velocity);
     }
     return;
   }
@@ -326,11 +320,12 @@ void HomotopyClassPlanner::createGraph(const PoseSE2& start, const PoseSE2& goal
   // Find all paths between start and goal!
   std::vector<HcGraphVertexType> visited;
   visited.push_back(start_vtx);
-  DepthFirst(graph_,visited,goal_vtx, start.theta(), goal.theta());
+  DepthFirst(graph_,visited,goal_vtx, start.theta(), goal.theta(), start_velocity);
 }
 
 
-void HomotopyClassPlanner::createProbRoadmapGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, int no_samples, double obstacle_heading_threshold)
+void HomotopyClassPlanner::createProbRoadmapGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, int no_samples,
+                                                  double obstacle_heading_threshold, boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   // Clear existing graph and paths
   clearGraph();
@@ -345,7 +340,7 @@ void HomotopyClassPlanner::createProbRoadmapGraph(const PoseSE2& start, const Po
     if (tebs_.empty())
     {
       ROS_INFO("HomotopyClassPlanner::createProbRoadmapGraph(): Initializing a small straight line to just correct orientation errors.");
-      addAndInitNewTeb(start, goal);
+      addAndInitNewTeb(start, goal, start_velocity);
     }
     return;
   }
@@ -357,17 +352,13 @@ void HomotopyClassPlanner::createProbRoadmapGraph(const PoseSE2& start, const Po
   
   double area_width = cfg_->hcp.roadmap_graph_area_width;
     
-  boost::random::uniform_real_distribution<double> distribution_x(0, start_goal_dist * cfg_->hcp.roadmap_graph_area_length_scale);  
+  boost::random::uniform_real_distribution<double> distribution_x(0, start_goal_dist);  
   boost::random::uniform_real_distribution<double> distribution_y(0, area_width); 
   
   double phi = atan2(diff.coeffRef(1),diff.coeffRef(0)); // rotate area by this angle
   Eigen::Rotation2D<double> rot_phi(phi);
   
-  Eigen::Vector2d area_origin;
-  if (cfg_->hcp.roadmap_graph_area_length_scale != 1.0)
-    area_origin = start.position() + 0.5*(1.0-cfg_->hcp.roadmap_graph_area_length_scale)*start_goal_dist*diff.normalized() - 0.5*area_width*normal; // bottom left corner of the origin
-  else
-    area_origin = start.position() - 0.5*area_width*normal; // bottom left corner of the origin
+  Eigen::Vector2d area_origin = start.position() - 0.5*area_width*normal; // bottom left corner of the origin
   
   // Insert Vertices
   HcGraphVertexType start_vtx = boost::add_vertex(graph_); // start vertex
@@ -446,11 +437,12 @@ void HomotopyClassPlanner::createProbRoadmapGraph(const PoseSE2& start, const Po
   /// Find all paths between start and goal!
   std::vector<HcGraphVertexType> visited;
   visited.push_back(start_vtx);
-  DepthFirst(graph_,visited,goal_vtx, start.theta(), goal.theta());
+  DepthFirst(graph_,visited,goal_vtx, start.theta(), goal.theta(), start_velocity);
 }
 
 
-void HomotopyClassPlanner::DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>& visited, const HcGraphVertexType& goal, double start_orientation, double goal_orientation)
+void HomotopyClassPlanner::DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>& visited, const HcGraphVertexType& goal,
+                                      double start_orientation, double goal_orientation, boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   // see http://www.technical-recipes.com/2011/a-recursive-algorithm-to-find-all-paths-between-two-given-nodes/ for details on finding all simple paths
   
@@ -478,7 +470,7 @@ void HomotopyClassPlanner::DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>
       // and init new TEB if no duplicate was found
       if ( addHSignatureIfNew(H) )
       {
-        addAndInitNewTeb(visited.begin(), visited.end(), boost::bind(getVector2dFromHcGraph, _1, boost::cref(graph_)), start_orientation, goal_orientation);
+        addAndInitNewTeb(visited.begin(), visited.end(), boost::bind(getVector2dFromHcGraph, _1, boost::cref(graph_)), start_orientation, goal_orientation, start_velocity);
       }
       
       visited.pop_back();
@@ -496,15 +488,25 @@ for ( boost::tie(it,end) = boost::adjacent_vertices(back,g); it!=end; ++it)
   visited.push_back(*it);
   
   // recursion step
-  DepthFirst(g, visited, goal, start_orientation, goal_orientation);
+  DepthFirst(g, visited, goal, start_orientation, goal_orientation, start_velocity);
   
   visited.pop_back();
 }
 }
  
+ 
+bool HomotopyClassPlanner::hasHSignature(const std::complex<long double>& H) const
+{
+  // iterate existing h-signatures and check if there is an existing H-Signature similar the candidate
+  for (std::vector< std::pair<std::complex<long double>, bool> >::const_iterator it = h_signatures_.begin(); it != h_signatures_.end(); ++it)
+  {
+    if (isHSignatureSimilar(it->first, H, cfg_->hcp.h_signature_threshold))
+      return true; // Found! Homotopy class already exists, therefore nothing added  
+  }
+  return false;
+}
 
-
-bool HomotopyClassPlanner::addHSignatureIfNew(const std::complex<long double>& H)
+bool HomotopyClassPlanner::addHSignatureIfNew(const std::complex<long double>& H, bool lock)
 {	  
   if (!std::isfinite(H.real()) || !std::isfinite(H.imag()))
   {
@@ -512,16 +514,11 @@ bool HomotopyClassPlanner::addHSignatureIfNew(const std::complex<long double>& H
     return false;
   }
   
-  
-  // iterate existing h-signatures and check if there is an existing H-Signature similar to the new one
-  for (std::vector< std::complex<long double> >::const_iterator it = h_signatures_.begin(); it != h_signatures_.end(); ++it)
-  {
-    if (isHSignatureSimilar(*it, H, cfg_->hcp.h_signature_threshold))
-      return false; // Found! Homotopy class already exists, therefore nothing added  
-  }
+  if (hasHSignature(H))
+    return false;
 
   // Homotopy class not found -> Add to class-list, return that the h-signature is new
-  h_signatures_.push_back(H);	 
+  h_signatures_.push_back(std::make_pair(H,lock));	 
   return true;
 }
  
@@ -551,28 +548,7 @@ void HomotopyClassPlanner::renewAndAnalyzeOldTebs(bool delete_detours)
       it_teb = tebs_.erase(it_teb); // delete candidate and set iterator to the next valid candidate
       continue;
     }
-   
-    // TEST: check if the following strategy performs well
-    // if the obstacle region is really close to the TEB (far below the saftey distance), the TEB will get heavily jabbed (pushed away) -> the obstacle error is very high!
-    // Smoothing this effect takes a long time. Here we first detect this artefact and then initialize a new path from the homotopy-planner in renewHomotopyClassesAndInitNewTEB()!
-    bool flag=false;
-    for(ObstContainer::const_iterator it_obst = obstacles_->begin(); it_obst != obstacles_->end(); ++it_obst)
-    {
-      double dist = HUGE_VAL;
-      it_teb->get()->teb().findClosestTrajectoryPose(*(it_obst->get()), &dist);
-      if (dist < 0.06)
-      {
-        ROS_DEBUG("getAndFilterHomotopyClassesTEB() - TEB and Intersection Point are at the same place, erasing candidate.");	
-        flag=true;
-        break;
-      }
-    }
-    if (flag)
-    {
-      it_teb = tebs_.erase(it_teb); // delete candidate and set iterator to the next valid candidate
-      continue;
-    }
- 
+
     // calculate H Signature for the current candidate
     std::complex<long double> H = calculateHSignature(it_teb->get()->teb().poses().begin(), it_teb->get()->teb().poses().end(), getCplxFromVertexPosePtr ,obstacles_, cfg_->hcp.h_signature_prescaler);
     
@@ -660,7 +636,7 @@ void HomotopyClassPlanner::updateReferenceTrajectoryViaPoints(bool all_trajector
     // enable via-points for teb in the same hommotopy class as the initial_plan and deactivate it for all other ones
     for (std::size_t i=0; i < h_signatures_.size(); ++i)
     {
-      if (isHSignatureSimilar(h_signatures_[i], initial_plan_h_sig_, cfg_->hcp.h_signature_threshold))
+      if (isHSignatureSimilar(h_signatures_[i].first, initial_plan_h_sig_, cfg_->hcp.h_signature_threshold))
         tebs_[i]->setViaPoints(via_points_);
       else
         tebs_[i]->setViaPoints(NULL);
@@ -669,32 +645,42 @@ void HomotopyClassPlanner::updateReferenceTrajectoryViaPoints(bool all_trajector
 }
  
  
-void HomotopyClassPlanner::exploreHomotopyClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst)
+void HomotopyClassPlanner::exploreHomotopyClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, boost::optional<const Eigen::Vector2d&> start_vel)
 {
   // first process old trajectories
   renewAndAnalyzeOldTebs(false);
 
+  // inject initial plan if available and not yet captured
+  if (initial_plan_ && addHSignatureIfNew(initial_plan_h_sig_, true)) // also prevent candidate from deletion
+    addAndInitNewTeb(*initial_plan_, start_vel);
+    
   // now explore new homotopy classes and initialize tebs if new ones are found.
   if (cfg_->hcp.simple_exploration)
-    createGraph(start,goal,dist_to_obst,cfg_->hcp.obstacle_heading_threshold);
+    createGraph(start,goal,dist_to_obst,cfg_->hcp.obstacle_heading_threshold, start_vel);
   else
-    createProbRoadmapGraph(start,goal,dist_to_obst,cfg_->hcp.roadmap_graph_no_samples,cfg_->hcp.obstacle_heading_threshold);
+    createProbRoadmapGraph(start,goal,dist_to_obst,cfg_->hcp.roadmap_graph_no_samples,cfg_->hcp.obstacle_heading_threshold, start_vel);
 } 
 
 
-void HomotopyClassPlanner::addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal)
+void HomotopyClassPlanner::addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   tebs_.push_back( TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_, robot_model_) ) );
   tebs_.back()->teb().initTEBtoGoal(start, goal, 0, cfg_->trajectory.dt_ref, cfg_->trajectory.min_samples);
+  
+  if (start_velocity)
+    tebs_.back()->setVelocityStart(*start_velocity);
 }
 
-void HomotopyClassPlanner::addAndInitNewTeb(const std::vector<geometry_msgs::PoseStamped>& initial_plan)
+void HomotopyClassPlanner::addAndInitNewTeb(const std::vector<geometry_msgs::PoseStamped>& initial_plan, boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   tebs_.push_back( TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_, robot_model_) ) );
   tebs_.back()->teb().initTEBtoGoal(*initial_plan_, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples); 
+  
+  if (start_velocity)
+    tebs_.back()->setVelocityStart(*start_velocity);
 }
 
-void HomotopyClassPlanner::updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const geometry_msgs::Twist* start_velocity)
+void HomotopyClassPlanner::updateAllTEBs(boost::optional<const PoseSE2&> start, boost::optional<const PoseSE2&> goal,  boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   // If new goal is too far away, clear all existing trajectories to let them reinitialize later.
   // Since all Tebs are sharing the same fixed goal pose, just take the first candidate:
@@ -703,22 +689,19 @@ void HomotopyClassPlanner::updateAllTEBs(const PoseSE2* start, const PoseSE2* go
       ROS_DEBUG("New goal: distance to existing goal is higher than the specified threshold. Reinitalizing trajectories.");
       tebs_.clear();
       h_signatures_.clear();
-      if (initial_plan_)
-        addAndInitNewTeb(*initial_plan_); // initial velocity will be updated below
-      // otherwise the exploration graph finds new candidates
   }  
   
   // hot-start from previous solutions
   for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
   {
-    it_teb->get()->teb().updateAndPruneTEB(*start, *goal);
+    it_teb->get()->teb().updateAndPruneTEB(start, goal);
     if (start_velocity)
       it_teb->get()->setVelocityStart(*start_velocity);
   }
 }
 
  
-void HomotopyClassPlanner::optimizeAllTEBs(int iter_innerloop, int iter_outerloop)
+void HomotopyClassPlanner::optimizeAllTEBs(unsigned int iter_innerloop, unsigned int iter_outerloop)
 {
   // optimize TEBs in parallel since they are independend of each other
   if (cfg_->hcp.enable_multithreading)
@@ -746,26 +729,33 @@ void HomotopyClassPlanner::deleteTebDetours(double threshold)
 {
   TebOptPlannerContainer::iterator it_teb = tebs_.begin();
   bool modified;
+  int h_idx = 0; // keep track about the current h-signature idx
   while(it_teb != tebs_.end())
-  {
+  { 
     modified = false;
     
-    // delete Detours if other TEBs will remain!
-    if (tebs_.size()>1 && it_teb->get()->teb().detectDetoursBackwards(threshold)) 
+    if (!h_signatures_[h_idx].second) // check if h-signature is locked
     {
-      it_teb = tebs_.erase(it_teb); // 0.05
-      modified = true;
+      // delete Detours if other TEBs will remain!
+      if (tebs_.size()>1 && it_teb->get()->teb().detectDetoursBackwards(threshold))
+      {
+	it_teb = tebs_.erase(it_teb); // 0.05
+	modified = true;
+      }
     }
     
     // Also delete tebs that cannot be optimized (last optim call failed)
+    // here, we ignore the lock-state, since we cannot keep trajectories that are not optimizable
     if (!it_teb->get()->isOptimized())
     {
-        it_teb = tebs_.erase(it_teb);
-        modified = true;      
+	it_teb = tebs_.erase(it_teb);
+	modified = true;      
     }  
     
     if (!modified)
        ++it_teb;
+    
+    ++h_idx;
   }
 } 
  

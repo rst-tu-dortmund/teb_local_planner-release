@@ -2,27 +2,25 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.6.1 (2016-05-23)
+0.4.2 (2016-06-15)
 ------------------
-* Debian ARM64 library path added to SuiteSparse cmake find-script (resolves ARM compilation issue)
+* Fixed bug causing the goal to disappear in case the robot arrives with non-zero orientation error.
+* Inflation mode for obstacles added (disabled by default).
+* The homotopy class of the global plan is now always forced to be initialized as trajectory.
+* The initial velocity of the robot is now taken into account correctly for
+  all candidate trajectories.
+* Removed a check in which the last remaining candidate trajectory was rejected if it was close to an obstacle.
+  This fix addresses issue `#7 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/7>`_
 
-
-0.6.0 (2016-05-22)
+0.4.1 (2016-05-20)
 ------------------
-* Extended support to holonomic robots
 * Wrong parameter namespace for *costmap_converter* plugins fixed
-* Added the option to scale the length of the hcp sampling area
-* Compiler warnings fixed.
+* Compiler warnings fixed
 * Workaround for compilation issues that are caused by a bug in boost 1.58
   concerning the graph library (missing move constructor/assignment operator
   in boost source).
-* Using *tf_listener* from *move_base* now.
-* Via-point support improved.
-  Added the possibility to take the actual order of via-points into account.
-  Additionally, via-points beyond start and goal are now included.
-* Obsolete include of the angles package header removed
-* Update to package.xml version 2
-* Some other minor fixes.
+* Using *tf*-listener from *move_base* instead of an isolated one
+* Via-point support improved
 
 
 0.4.0 (2016-04-19)

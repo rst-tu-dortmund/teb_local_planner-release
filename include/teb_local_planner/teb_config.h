@@ -87,10 +87,8 @@ public:
   {
     double max_vel_x; //!< Maximum translational velocity of the robot
     double max_vel_x_backwards; //!< Maximum translational velocity of the robot for driving backwards
-    double max_vel_y; //!< Maximum strafing velocity of the robot (should be zero for non-holonomic robots!)
     double max_vel_theta; //!< Maximum angular velocity of the robot
     double acc_lim_x; //!< Maximum translational acceleration of the robot
-    double acc_lim_y; //!< Maximum strafing acceleration of the robot
     double acc_lim_theta; //!< Maximum angular acceleration of the robot
     double min_turning_radius; //!< Minimum turning radius of a carlike robot (diff-drive robot: zero); 
     double wheelbase; //!< The distance between the drive shaft and steering axle (only required for a carlike robot with 'cmd_angle_instead_rotvel' enabled); The value might be negative for back-wheeled robots!
@@ -109,6 +107,7 @@ public:
   struct Obstacles
   {
     double min_obstacle_dist; //!< Minimum desired separation from obstacles
+    double inflation_dist; //!< buffer zone around obstacles with non-zero penalty costs (should be larger than min_obstacle_dist in order to take effect)
     bool include_costmap_obstacles; //!< Specify whether the obstacles in the costmap should be taken into account directly
     double costmap_obstacles_behind_robot_dist; //!< Limit the occupied local costmap obstacles taken into account for planning behind the robot (specify distance in meters)
     int obstacle_poses_affected; //!< The obstacle position is attached to the closest pose on the trajectory to reduce computational effort, but take a number of neighbors into account as well
@@ -130,16 +129,15 @@ public:
     double penalty_epsilon; //!< Add a small safety margin to penalty functions for hard-constraint approximations
     
     double weight_max_vel_x; //!< Optimization weight for satisfying the maximum allowed translational velocity
-    double weight_max_vel_y; //!< Optimization weight for satisfying the maximum allowed strafing velocity (in use only for holonomic robots)
     double weight_max_vel_theta; //!< Optimization weight for satisfying the maximum allowed angular velocity
     double weight_acc_lim_x; //!< Optimization weight for satisfying the maximum allowed translational acceleration
-    double weight_acc_lim_y; //!< Optimization weight for satisfying the maximum allowed strafing acceleration (in use only for holonomic robots)
     double weight_acc_lim_theta; //!< Optimization weight for satisfying the maximum allowed angular acceleration
     double weight_kinematics_nh; //!< Optimization weight for satisfying the non-holonomic kinematics
     double weight_kinematics_forward_drive; //!< Optimization weight for forcing the robot to choose only forward directions (positive transl. velocities, only diffdrive robot)
     double weight_kinematics_turning_radius; //!< Optimization weight for enforcing a minimum turning radius (carlike robots)
     double weight_optimaltime; //!< Optimization weight for contracting the trajectory w.r.t transition time
     double weight_obstacle; //!< Optimization weight for satisfying a minimum separation from obstacles
+    double weight_inflation; //!< Optimization weight for the inflation penalty (should be small)
     double weight_dynamic_obstacle; //!< Optimization weight for satisfying a minimum separation from dynamic obstacles    
     double weight_viapoint; //!< Optimization weight for minimizing the distance to via-points
   } optim; //!< Optimization related parameters
@@ -158,7 +156,6 @@ public:
     
     int roadmap_graph_no_samples; //! < Specify the number of samples generated for creating the roadmap graph, if simple_exploration is turend off.
     double roadmap_graph_area_width; //!< Random keypoints/waypoints are sampled in a rectangular region between start and goal. Specify the width of that region in meters.
-    double roadmap_graph_area_length_scale; //!< The length of the rectangular region is determined by the distance between start and goal. This parameter further scales the distance such that the geometric center remains equal!
     double h_signature_prescaler; //!< Scale number of obstacle value in order to allow huge number of obstacles. Do not choose it extremly low, otherwise obstacles cannot be distinguished from each other (0.2<H<=1).
     double h_signature_threshold; //!< Two h-signatures are assumed to be equal, if both the difference of real parts and complex parts are below the specified threshold.
     
@@ -209,10 +206,8 @@ public:
          
     robot.max_vel_x = 0.4;
     robot.max_vel_x_backwards = 0.2;
-    robot.max_vel_y = 0.0;
     robot.max_vel_theta = 0.3;
     robot.acc_lim_x = 0.5;
-    robot.acc_lim_y = 0.5;
     robot.acc_lim_theta = 0.5;
     robot.min_turning_radius = 0;
     robot.wheelbase = 1.0;
@@ -227,6 +222,7 @@ public:
     // Obstacles
     
     obstacles.min_obstacle_dist = 0.5;
+    obstacles.inflation_dist = 0.0;
     obstacles.include_costmap_obstacles = true;
     obstacles.costmap_obstacles_behind_robot_dist = 0.5;
     obstacles.obstacle_poses_affected = 25;
@@ -242,16 +238,15 @@ public:
     optim.optimization_verbose = false;
     optim.penalty_epsilon = 0.1;
     optim.weight_max_vel_x = 2; //1
-    optim.weight_max_vel_y = 2;
     optim.weight_max_vel_theta = 1;
     optim.weight_acc_lim_x = 1;
-    optim.weight_acc_lim_y = 1;
     optim.weight_acc_lim_theta = 1;
     optim.weight_kinematics_nh = 1000;
     optim.weight_kinematics_forward_drive = 1;
     optim.weight_kinematics_turning_radius = 1;
     optim.weight_optimaltime = 1;
     optim.weight_obstacle = 10;
+    optim.weight_inflation = 0.1;
     optim.weight_dynamic_obstacle = 10;
     optim.weight_viapoint = 1;
     
@@ -270,7 +265,6 @@ public:
     hcp.obstacle_heading_threshold = 0.45; 
     hcp.roadmap_graph_no_samples = 15;
     hcp.roadmap_graph_area_width = 6; // [m]
-    hcp.roadmap_graph_area_length_scale = 1.0;
     hcp.h_signature_prescaler = 1;
     hcp.h_signature_threshold = 0.1;
     
