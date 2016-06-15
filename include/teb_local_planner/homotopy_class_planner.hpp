@@ -53,7 +53,7 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
     
     // guess values for f0
     // paper proposes a+b=N-1 && |a-b|<=1, 1...N obstacles
-    int m = obstacles->size()-1;
+    int m = (int)obstacles->size()-1;
     
     if (m>5)
       m = 5;  // hardcoded, but this was working in my test cases... TODO further tests requried
@@ -86,13 +86,13 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
       cplx z1 = fun_cplx_point(*path_start);
       cplx z2 = fun_cplx_point(*boost::next(path_start));
 
-      for (unsigned int l=0; l<obstacles->size(); ++l) // iterate all obstacles
+      for (std::size_t l=0; l<obstacles->size(); ++l) // iterate all obstacles
       {
         cplx obst_l = obstacles->at(l)->getCentroidCplx();
         cplx f0 = (long double) prescaler * std::pow(obst_l-map_bottom_left,a) * std::pow(obst_l-map_top_right,b);
         // denum contains product with all obstacles exepct j==l
         cplx Al = f0;
-        for (unsigned int j=0; j<obstacles->size(); ++j)
+        for (std::size_t j=0; j<obstacles->size(); ++j)
         {
           if (j==l) 
               continue;
@@ -127,8 +127,7 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
 
 
 template<typename BidirIter, typename Fun>
-void HomotopyClassPlanner::addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position,
-                                            double start_orientation, double goal_orientation, boost::optional<const Eigen::Vector2d&> start_velocity)
+void HomotopyClassPlanner::addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation, const geometry_msgs::Twist* start_velocity)
 {
   tebs_.push_back( TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_, robot_model_) ) );
   tebs_.back()->teb().initTEBtoGoal(path_start, path_end, fun_position, cfg_->robot.max_vel_x, cfg_->robot.max_vel_theta, 

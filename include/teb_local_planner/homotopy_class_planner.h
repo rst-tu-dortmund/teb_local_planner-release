@@ -176,7 +176,7 @@ public:
    * according to an initial reference plan (given as a container of poses).
    * @warning The current implementation extracts only the start and goal pose and calls the overloaded plan()
    * @param initial_plan vector of geometry_msgs::PoseStamped (must be valid until clearPlanner() is called!)
-   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x and angular.z are used)
+   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x, linear.y (holonomic) and angular.z are used)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
@@ -189,7 +189,7 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized between a given start and goal pose.
    * @param start tf::Pose containing the start pose of the trajectory
    * @param goal tf::Pose containing the goal pose of the trajectory
-   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x and angular.z are used)
+   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x, linear.y (holonomic) and angular.z are used)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
@@ -202,21 +202,22 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized between a given start and goal pose.
    * @param start PoseSE2 containing the start pose of the trajectory
    * @param goal PoseSE2 containing the goal pose of the trajectory
-   * @param start_vel Initial velocity at the start pose (2D vector containing the translational and angular velocity).
+   * @param start_vel Initial velocity at the start pose (twist message containing the translational and angular velocity).
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
    */
-  virtual bool plan(const PoseSE2& start, const PoseSE2& goal, const Eigen::Vector2d& start_vel, bool free_goal_vel=false);
+  virtual bool plan(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::Twist* start_vel = NULL, bool free_goal_vel=false);
   
   /**
    * @brief Get the velocity command from a previously optimized plan to control the robot at the current sampling interval.
    * @warning Call plan() first and check if the generated plan is feasible.
-   * @param[out] v translational velocity [m/s]
+   * @param[out] vx translational velocity [m/s]
+   * @param[out] vy strafing velocity which can be nonzero for holonomic robots [m/s] 
    * @param[out] omega rotational velocity [rad/s]
    * @return \c true if command is valid, \c false otherwise
    */
-  virtual bool getVelocityCommand(double& v, double& omega) const;
+  virtual bool getVelocityCommand(double& vx, double& vy, double& omega) const;
   
   /**
    * @brief Access current best trajectory candidate (that relates to the "best" homotopy class).
@@ -285,7 +286,7 @@ public:
    * @param dist_to_obst Allowed distance to obstacles: if not satisfying, the path will be rejected (note, this is not the distance used for optimization).
    * @param @param start_velocity start velocity (optional)
    */
-  void exploreHomotopyClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, boost::optional<const Eigen::Vector2d&> start_vel);
+  void exploreHomotopyClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, const geometry_msgs::Twist* start_vel);
 
   
   /**
@@ -310,7 +311,7 @@ public:
    * @tparam Fun unyary function that transforms the dereferenced iterator into an Eigen::Vector2d
    */
   template<typename BidirIter, typename Fun>
-  void addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation, boost::optional<const Eigen::Vector2d&> start_velocity); 
+  void addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation, const geometry_msgs::Twist* start_velocity); 
   
   /**
    * @brief Add a new Teb to the internal trajectory container and initialize it with a simple straight line between a given start and goal
@@ -318,14 +319,14 @@ public:
    * @param goal goal pose
    * @param start_velocity start velocity (optional)
    */
-  void addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, boost::optional<const Eigen::Vector2d&> start_velocity); 
+  void addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::Twist* start_velocity); 
   
     /**
    * @brief Add a new Teb to the internal trajectory container and initialize it using a PoseStamped container
    * @param initial_plan container of poses (start and goal orientation should be valid!)
    * @param start_velocity start velocity (optional)
    */
-  void addAndInitNewTeb(const std::vector<geometry_msgs::PoseStamped>& initial_plan, boost::optional<const Eigen::Vector2d&> start_velocity);
+  void addAndInitNewTeb(const std::vector<geometry_msgs::PoseStamped>& initial_plan, const geometry_msgs::Twist* start_velocity);
   
   /**
    * @brief Update TEBs with new pose, goal and current velocity.
@@ -333,7 +334,7 @@ public:
    * @param goal New goal pose (optional)
    * @param start_velocity start velocity (optional)
    */
-  void updateAllTEBs(boost::optional<const PoseSE2&> start, boost::optional<const PoseSE2&> goal,  boost::optional<const Eigen::Vector2d&> start_velocity);
+  void updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const geometry_msgs::Twist* start_velocity);
   
   
   /**
@@ -343,7 +344,7 @@ public:
    * @param iter_innerloop Number of inner iterations (see TebOptimalPlanner::optimizeTEB())
    * @param iter_outerloop Number of outer iterations (see TebOptimalPlanner::optimizeTEB())
    */
-  void optimizeAllTEBs(unsigned int iter_innerloop, unsigned int iter_outerloop);
+  void optimizeAllTEBs(int iter_innerloop, int iter_outerloop);
   
   /**
    * @brief In case of multiple, internally stored, alternative trajectories, select the best one according to their cost values.
@@ -452,7 +453,7 @@ protected:
    * @param obstacle_heading_threshold Value of the normalized scalar product between obstacle heading and goal heading in order to take them (obstacles) into account [0,1]
    * @param start_velocity start velocity (optional)
    */
-  void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, boost::optional<const Eigen::Vector2d&> start_velocity);
+  void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const geometry_msgs::Twist* start_velocity);
   
   /**
    * @brief Create a graph and sample points in the global frame that can be used to explore new possible paths between start and goal.
@@ -470,7 +471,7 @@ protected:
    * @param obstacle_heading_threshold Value of the normalized scalar product between obstacle heading and goal heading in order to take them (obstacles) into account [0,1]
    * @param start_velocity start velocity (optional)
    */  
-  void createProbRoadmapGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, int no_samples, double obstacle_heading_threshold, boost::optional<const Eigen::Vector2d&> start_velocity);
+  void createProbRoadmapGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, int no_samples, double obstacle_heading_threshold, const geometry_msgs::Twist* start_velocity);
   
   /**
    * @brief Check if a h-signature exists already.
@@ -520,8 +521,7 @@ protected:
    * @param goal_orientation Orientation of the goal trajectory pose, required to initialize the trajectory/TEB
    * @param start_velocity start velocity (optional)
    */
-  void DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>& visited, const HcGraphVertexType& goal,
-                  double start_orientation, double goal_orientation, boost::optional<const Eigen::Vector2d&> start_velocity);
+  void DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>& visited, const HcGraphVertexType& goal, double start_orientation, double goal_orientation, const geometry_msgs::Twist* start_velocity);
  
   /**
    * @brief Clear any existing graph of the homotopy class search
@@ -539,9 +539,9 @@ protected:
   
     
   // external objects (store weak pointers)
+  const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
   ObstContainer* obstacles_; //!< Store obstacles that are relevant for planning
   const ViaPointContainer* via_points_; //!< Store the current list of via-points
-  const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
   
   // internal objects (memory management owned)
   TebVisualizationPtr visualization_; //!< Instance of the visualization class (local/global plan, obstacles, ...)
