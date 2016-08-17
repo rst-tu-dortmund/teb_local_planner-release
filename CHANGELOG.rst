@@ -2,48 +2,35 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.6.3 (2016-08-17)
+0.4.3 (2016-08-17)
 ------------------
 * Changed the f0 function for calculating the H-Signature.
   The new one seems to be more robust for a much larger number of obstacles
   after some testing.
 * HomotopyClassPlanner: vertex collision check removed since collisions will be determined in the edge collision check again
 * Fixed distance calculation polygon-to-polygon-obstacle
-* cmake config exports now *include directories* of external packages for dependent projects
 * Enlarged upper bounds on goal position and orientation tolerances in *dynamic_reconfigure*. Fixes #13.
 
 
-0.6.2 (2016-06-15)
+0.4.2 (2016-06-15)
 ------------------
 * Fixed bug causing the goal to disappear in case the robot arrives with non-zero orientation error.
-* Inflation mode for obstacles added.
+* Inflation mode for obstacles added (disabled by default).
 * The homotopy class of the global plan is now always forced to be initialized as trajectory.
 * The initial velocity of the robot is now taken into account correctly for
   all candidate trajectories.
 * Removed a check in which the last remaining candidate trajectory was rejected if it was close to an obstacle.
   This fix addresses issue `#7 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/7>`_
 
-0.6.1 (2016-05-23)
+0.4.1 (2016-05-20)
 ------------------
-* Debian ARM64 library path added to SuiteSparse cmake find-script (resolves ARM compilation issue)
-
-
-0.6.0 (2016-05-22)
-------------------
-* Extended support to holonomic robots
 * Wrong parameter namespace for *costmap_converter* plugins fixed
-* Added the option to scale the length of the hcp sampling area
-* Compiler warnings fixed.
+* Compiler warnings fixed
 * Workaround for compilation issues that are caused by a bug in boost 1.58
   concerning the graph library (missing move constructor/assignment operator
   in boost source).
-* Using *tf_listener* from *move_base* now.
-* Via-point support improved.
-  Added the possibility to take the actual order of via-points into account.
-  Additionally, via-points beyond start and goal are now included.
-* Obsolete include of the angles package header removed
-* Update to package.xml version 2
-* Some other minor fixes.
+* Using *tf*-listener from *move_base* instead of an isolated one
+* Via-point support improved
 
 
 0.4.0 (2016-04-19)
