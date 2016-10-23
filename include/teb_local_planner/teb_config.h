@@ -76,6 +76,7 @@ public:
     double global_plan_viapoint_sep; //!< Min. separation between each two consecutive via-points extracted from the global plan (if negative: disabled)
     bool via_points_ordered; //!< If true, the planner adheres to the order of via-points in the storage container
     double max_global_plan_lookahead_dist; //!< Specify maximum length (cumulative Euclidean distances) of the subset of the global plan taken into account for optimization [if <=0: disabled; the length is also bounded by the local costmap size!]
+    bool exact_arc_length; //!< If true, the planner uses the exact arc length in velocity, acceleration and turning rate computations [-> increased cpu time], otherwise the euclidean approximation is used.
     double force_reinit_new_goal_dist; //!< Reinitialize the trajectory if a previous goal is updated with a seperation of more than the specified value in meters (skip hot-starting)
     int feasibility_check_no_poses; //!< Specify up to which pose on the predicted plan the feasibility should be checked each sampling interval.
     bool publish_feedback; //!< Publish planner feedback containing the full trajectory and a list of active obstacles (should be enabled only for evaluation or debugging purposes)
@@ -113,6 +114,9 @@ public:
     bool include_costmap_obstacles; //!< Specify whether the obstacles in the costmap should be taken into account directly
     double costmap_obstacles_behind_robot_dist; //!< Limit the occupied local costmap obstacles taken into account for planning behind the robot (specify distance in meters)
     int obstacle_poses_affected; //!< The obstacle position is attached to the closest pose on the trajectory to reduce computational effort, but take a number of neighbors into account as well
+    bool legacy_obstacle_association; //!< If true, the old association strategy is used (for each obstacle, find the nearest TEB pose), otherwise the new one (for each teb pose, find only "relevant" obstacles).
+    double obstacle_association_force_inclusion_factor; //!< The non-legacy obstacle association technique tries to connect only relevant obstacles with the discretized trajectory during optimization, all obstacles within a specifed distance are forced to be included (as a multiple of min_obstacle_dist), e.g. choose 2.0 in order to consider obstacles within a radius of 2.0*min_obstacle_dist.
+    double obstacle_association_cutoff_factor; //!< See obstacle_association_force_inclusion_factor, but beyond a multiple of [value]*min_obstacle_dist all obstacles are ignored during optimization. obstacle_association_force_inclusion_factor is processed first.
     std::string costmap_converter_plugin; //!< Define a plugin name of the costmap_converter package (costmap cells are converted to points/lines/polygons)
     bool costmap_converter_spin_thread; //!< If \c true, the costmap converter invokes its callback queue in a different thread
     int costmap_converter_rate; //!< The rate that defines how often the costmap_converter plugin processes the current costmap (the value should not be much higher than the costmap update rate)
@@ -202,6 +206,7 @@ public:
     trajectory.global_plan_viapoint_sep = -1;
     trajectory.via_points_ordered = false;
     trajectory.max_global_plan_lookahead_dist = 1;
+    trajectory.exact_arc_length = false;
     trajectory.force_reinit_new_goal_dist = 1;
     trajectory.feasibility_check_no_poses = 5;
     trajectory.publish_feedback = false;
@@ -231,8 +236,11 @@ public:
     obstacles.min_obstacle_dist = 0.5;
     obstacles.inflation_dist = 0.6;
     obstacles.include_costmap_obstacles = true;
-    obstacles.costmap_obstacles_behind_robot_dist = 0.5;
+    obstacles.costmap_obstacles_behind_robot_dist = 1.5;
     obstacles.obstacle_poses_affected = 25;
+    obstacles.legacy_obstacle_association = false;
+    obstacles.obstacle_association_force_inclusion_factor = 1.5;
+    obstacles.obstacle_association_cutoff_factor = 5;
     obstacles.costmap_converter_plugin = "";
     obstacles.costmap_converter_spin_thread = true;
     obstacles.costmap_converter_rate = 5;
