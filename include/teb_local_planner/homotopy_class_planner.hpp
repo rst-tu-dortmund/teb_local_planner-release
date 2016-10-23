@@ -53,7 +53,7 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
     
     // guess values for f0
     // paper proposes a+b=N-1 && |a-b|<=1, 1...N obstacles
-    int m = std::max( (int)obstacles->size()-1, 5 );  // for only a few obstacles we need a min threshold in order to get significantly high H-Signatures
+    int m = obstacles->size()-1;
     
     int a = (int) std::ceil(double(m)/2.0);
     int b = m-a;
@@ -90,7 +90,7 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
       cplx z1 = fun_cplx_point(*path_start);
       cplx z2 = fun_cplx_point(*boost::next(path_start));
 
-      for (std::size_t l=0; l<obstacles->size(); ++l) // iterate all obstacles
+      for (unsigned int l=0; l<obstacles->size(); ++l) // iterate all obstacles
       {
         cplx obst_l = obstacles->at(l)->getCentroidCplx();
         //cplx f0 = (long double) prescaler * std::pow(obst_l-map_bottom_left,a) * std::pow(obst_l-map_top_right,b);
@@ -98,7 +98,7 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
         
         // denum contains product with all obstacles exepct j==l
         cplx Al = f0;
-        for (std::size_t j=0; j<obstacles->size(); ++j)
+        for (unsigned int j=0; j<obstacles->size(); ++j)
         {
           if (j==l) 
               continue;
@@ -135,7 +135,8 @@ std::complex<long double> HomotopyClassPlanner::calculateHSignature(BidirIter pa
 
 
 template<typename BidirIter, typename Fun>
-void HomotopyClassPlanner::addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation, const geometry_msgs::Twist* start_velocity)
+void HomotopyClassPlanner::addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position,
+                                            double start_orientation, double goal_orientation, boost::optional<const Eigen::Vector2d&> start_velocity)
 {
   tebs_.push_back( TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_, robot_model_) ) );
   tebs_.back()->teb().initTEBtoGoal(path_start, path_end, fun_position, cfg_->robot.max_vel_x, cfg_->robot.max_vel_theta, 
