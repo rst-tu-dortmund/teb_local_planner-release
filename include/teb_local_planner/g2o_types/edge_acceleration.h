@@ -48,9 +48,10 @@
 #include <teb_local_planner/g2o_types/vertex_timediff.h>
 #include <teb_local_planner/g2o_types/penalties.h>
 #include <teb_local_planner/teb_config.h>
+#include <teb_local_planner/g2o_types/base_teb_edges.h>
+
 #include <geometry_msgs/Twist.h>
 
-#include "g2o/core/base_multi_edge.h"
 
 
 namespace teb_local_planner
@@ -74,34 +75,18 @@ namespace teb_local_planner
  * @remarks Do not forget to call setTebConfig()
  * @remarks Refer to EdgeAccelerationStart() and EdgeAccelerationGoal() for defining boundary values!
  */    
-class EdgeAcceleration : public g2o::BaseMultiEdge<2, double>
+class EdgeAcceleration : public BaseTebMultiEdge<2, double>
 {
 public:
 
   /**
    * @brief Construct edge.
-   */	   
+   */ 
   EdgeAcceleration()
   {
     this->resize(5);
-    _vertices[0]=_vertices[1]=_vertices[2]=_vertices[3]=_vertices[4]=NULL;
   }
-  
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */  
-  virtual ~EdgeAcceleration()
-  {
-    for(unsigned int i=0;i<5;i++)
-    {
-	if(_vertices[i])
-	  _vertices[i]->edges().erase(this);
-    }
-  }
-   
+    
   /**
    * @brief Actual cost function
    */   
@@ -115,10 +100,31 @@ public:
     const VertexTimeDiff* dt2 = static_cast<const VertexTimeDiff*>(_vertices[4]);
 
     // VELOCITY & ACCELERATION
-    Eigen::Vector2d diff1 = pose2->position() - pose1->position();
-    Eigen::Vector2d diff2 = pose3->position() - pose2->position();
-    double vel1 = diff1.norm() / dt1->dt();
-    double vel2 = diff2.norm() / dt2->dt();
+    const Eigen::Vector2d diff1 = pose2->position() - pose1->position();
+    const Eigen::Vector2d diff2 = pose3->position() - pose2->position();
+        
+    double dist1 = diff1.norm();
+    double dist2 = diff2.norm();
+    const double angle_diff1 = g2o::normalize_theta(pose2->theta() - pose1->theta());
+    const double angle_diff2 = g2o::normalize_theta(pose3->theta() - pose2->theta());
+    
+    if (cfg_->trajectory.exact_arc_length) // use exact arc length instead of Euclidean approximation
+    {
+        if (angle_diff1 != 0)
+        {
+            const double radius =  dist1/(2*sin(angle_diff1/2));
+            dist1 = fabs( angle_diff1 * radius ); // actual arg length!
+        }
+        if (angle_diff2 != 0)
+        {
+            const double radius =  dist2/(2*sin(angle_diff2/2));
+            dist2 = fabs( angle_diff2 * radius ); // actual arg length!
+        }
+    }
+    
+    double vel1 = dist1 / dt1->dt();
+    double vel2 = dist2 / dt2->dt();
+    
     
     // consider directions
 //     vel1 *= g2o::sign(diff1[0]*cos(pose1->theta()) + diff1[1]*sin(pose1->theta())); 
@@ -126,15 +132,15 @@ public:
     vel1 *= fast_sigmoid( 100*(diff1.x()*cos(pose1->theta()) + diff1.y()*sin(pose1->theta())) ); 
     vel2 *= fast_sigmoid( 100*(diff2.x()*cos(pose2->theta()) + diff2.y()*sin(pose2->theta())) ); 
     
-    double acc_lin  = (vel2 - vel1)*2 / ( dt1->dt() + dt2->dt() );
+    const double acc_lin  = (vel2 - vel1)*2 / ( dt1->dt() + dt2->dt() );
    
 
     _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon);
     
     // ANGULAR ACCELERATION
-    double omega1 = g2o::normalize_theta(pose2->theta() - pose1->theta()) / dt1->dt();
-    double omega2 = g2o::normalize_theta(pose3->theta() - pose2->theta()) / dt2->dt();
-    double acc_rot  = (omega2 - omega1)*2 / ( dt1->dt() + dt2->dt() );
+    const double omega1 = angle_diff1 / dt1->dt();
+    const double omega2 = angle_diff2 / dt2->dt();
+    const double acc_rot  = (omega2 - omega1)*2 / ( dt1->dt() + dt2->dt() );
       
     _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon);
 
@@ -255,51 +261,7 @@ public:
     }
 #endif
 #endif
-	
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational acc cost, angular acc cost]^T
-   */ 	
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  }	
-	
-  /**
-   * @brief Read values from input stream
-   */  	
-  bool read(std::istream& is)
-  {
-    is >> _measurement;
-    is >> information()(0,0);	// TODO: fixme
-    return true;
-  }
 
-  /**
-   * @brief Write values to an output stream
-   */    
-  bool write(std::ostream& os) const
-  {
-    os << information()(0,0) << " Error: " << _error[0] << " " << _error[1]; // TODO: fixme
-
-    return os.good();
-  }
-  
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */   
-  void setTebConfig(const TebConfig& cfg)
-  {
-    cfg_ = &cfg;
-  }
-    
-protected:
-      
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
       
 public: 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -326,7 +288,7 @@ public:
  * @remarks Do not forget to call setTebConfig()
  * @remarks Refer to EdgeAccelerationGoal() for defining boundary values at the end of the trajectory!
  */      
-class EdgeAccelerationStart : public g2o::BaseMultiEdge<2, const geometry_msgs::Twist*>
+class EdgeAccelerationStart : public BaseTebMultiEdge<2, const geometry_msgs::Twist*>
 {
 public:
 
@@ -335,25 +297,10 @@ public:
    */	  
   EdgeAccelerationStart()
   {
-    this->resize(3);
-    _vertices[0]=_vertices[1]=_vertices[2]=NULL;
     _measurement = NULL;
+    this->resize(3);
   }
   
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */   
-  ~EdgeAccelerationStart()
-  {
-    for(unsigned int i=0;i<3;i++)
-    {
-      if(_vertices[i]) 
-        _vertices[i]->edges().erase(this);
-    }
-  }
   
   /**
    * @brief Actual cost function
@@ -366,57 +313,35 @@ public:
     const VertexTimeDiff* dt = static_cast<const VertexTimeDiff*>(_vertices[2]);
 
     // VELOCITY & ACCELERATION
-    Eigen::Vector2d diff = pose2->position() - pose1->position();
-    double vel1 = _measurement->linear.x;
-    double vel2 = diff.norm() / dt->dt();
+    const Eigen::Vector2d diff = pose2->position() - pose1->position();
+    double dist = diff.norm();
+    const double angle_diff = g2o::normalize_theta(pose2->theta() - pose1->theta());
+    if (cfg_->trajectory.exact_arc_length && angle_diff != 0)
+    {
+        const double radius =  dist/(2*sin(angle_diff/2));
+        dist = fabs( angle_diff * radius ); // actual arg length!
+    }
+    
+    const double vel1 = _measurement->linear.x;
+    double vel2 = dist / dt->dt();
 
     // consider directions
     //vel2 *= g2o::sign(diff[0]*cos(pose1->theta()) + diff[1]*sin(pose1->theta())); 
     vel2 *= fast_sigmoid( 100*(diff.x()*cos(pose1->theta()) + diff.y()*sin(pose1->theta())) ); 
     
-    double acc_lin  = (vel2 - vel1) / dt->dt();
+    const double acc_lin  = (vel2 - vel1) / dt->dt();
     
     _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon);
     
     // ANGULAR ACCELERATION
-    double omega1 = _measurement->angular.z;
-    double omega2 = g2o::normalize_theta(pose2->theta() - pose1->theta()) / dt->dt();
-    double acc_rot  = (omega2 - omega1) / dt->dt();
+    const double omega1 = _measurement->angular.z;
+    const double omega2 = angle_diff / dt->dt();
+    const double acc_rot  = (omega2 - omega1) / dt->dt();
       
     _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon);
 
     ROS_ASSERT_MSG(std::isfinite(_error[0]), "EdgeAccelerationStart::computeError() translational: _error[0]=%f\n",_error[0]);
     ROS_ASSERT_MSG(std::isfinite(_error[1]), "EdgeAccelerationStart::computeError() rotational: _error[1]=%f\n",_error[1]);
-  }
-
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational acc cost, angular acc cost]^T
-   */   
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  }	
-	
-  /**
-   * @brief Read values from input stream
-   */  	
-  bool read(std::istream& is)
-  {
-    is >> information()(0,0);	// TODO: fixme
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */   
-  bool write(std::ostream& os) const
-  {
-    os << information()(0,0) << " Error: " << _error[0] << " " << _error[1]; // TODO: fixme
-    return os.good();
   }
   
   /**
@@ -428,20 +353,6 @@ public:
     _measurement = &vel_start;
   }
   
-  
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */    
-  void setTebConfig(const TebConfig& cfg)
-  {
-      cfg_ = &cfg;
-  }
-    
-protected:
-      
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
-      
 public:       
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };    
@@ -468,7 +379,7 @@ public:
  * @remarks Do not forget to call setTebConfig()
  * @remarks Refer to EdgeAccelerationStart() for defining boundary (initial) values at the end of the trajectory
  */  
-class EdgeAccelerationGoal : public g2o::BaseMultiEdge<2, const geometry_msgs::Twist*>
+class EdgeAccelerationGoal : public BaseTebMultiEdge<2, const geometry_msgs::Twist*>
 {
 public:
 
@@ -479,23 +390,8 @@ public:
   {
     _measurement = NULL;
     this->resize(3);
-    _vertices[0]=_vertices[1]=_vertices[2]=NULL;
   }
   
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */    
-  ~EdgeAccelerationGoal()
-  {
-    for(unsigned int i=0;i<3;i++)
-    {
-      if(_vertices[i])
-        _vertices[i]->edges().erase(this);
-    }
-  }
 
   /**
    * @brief Actual cost function
@@ -509,63 +405,37 @@ public:
 
     // VELOCITY & ACCELERATION
 
-    Eigen::Vector2d diff = pose_goal->position() - pose_pre_goal->position();    
-    double vel1 = diff.norm() / dt->dt();
-    double vel2 = _measurement->linear.x;
+    const Eigen::Vector2d diff = pose_goal->position() - pose_pre_goal->position();  
+    double dist = diff.norm();
+    const double angle_diff = g2o::normalize_theta(pose_goal->theta() - pose_pre_goal->theta());
+    if (cfg_->trajectory.exact_arc_length  && angle_diff != 0)
+    {
+        double radius =  dist/(2*sin(angle_diff/2));
+        dist = fabs( angle_diff * radius ); // actual arg length!
+    }
+    
+    double vel1 = dist / dt->dt();
+    const double vel2 = _measurement->linear.x;
     
     // consider directions
     //vel1 *= g2o::sign(diff[0]*cos(pose_pre_goal->theta()) + diff[1]*sin(pose_pre_goal->theta())); 
     vel1 *= fast_sigmoid( 100*(diff.x()*cos(pose_pre_goal->theta()) + diff.y()*sin(pose_pre_goal->theta())) ); 
     
-    double acc_lin  = (vel2 - vel1) / dt->dt();
+    const double acc_lin  = (vel2 - vel1) / dt->dt();
 
     _error[0] = penaltyBoundToInterval(acc_lin,cfg_->robot.acc_lim_x,cfg_->optim.penalty_epsilon);
     
     // ANGULAR ACCELERATION
-    double omega1 = g2o::normalize_theta(pose_goal->theta() - pose_pre_goal->theta()) / dt->dt();
-    double omega2 = _measurement->angular.z;
-    double acc_rot  = (omega2 - omega1) / dt->dt();
+    const double omega1 = angle_diff / dt->dt();
+    const double omega2 = _measurement->angular.z;
+    const double acc_rot  = (omega2 - omega1) / dt->dt();
       
     _error[1] = penaltyBoundToInterval(acc_rot,cfg_->robot.acc_lim_theta,cfg_->optim.penalty_epsilon);
 
     ROS_ASSERT_MSG(std::isfinite(_error[0]), "EdgeAccelerationGoal::computeError() translational: _error[0]=%f\n",_error[0]);
     ROS_ASSERT_MSG(std::isfinite(_error[1]), "EdgeAccelerationGoal::computeError() rotational: _error[1]=%f\n",_error[1]);
   }
-  
-  
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational acc cost, angular acc cost]^T
-   */   
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  }  
-	
-	
-  /**
-   * @brief Read values from input stream
-   */  	
-  bool read(std::istream& is)
-  {
-    is >> information()(0,0);	// TODO: fixme
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */    
-  bool write(std::ostream& os) const
-  {
-    os << information()(0,0) << " Error: " << _error[0] << " " << _error[1]; // TODO: fixme
-
-    return os.good();
-  }
-  
-  
+    
   /**
    * @brief Set the goal / final velocity that is taken into account for calculating the acceleration
    * @param vel_goal twist message containing the translational and rotational velocity
@@ -575,19 +445,6 @@ public:
     _measurement = &vel_goal;
   }
   
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */  
-  void setTebConfig(const TebConfig& cfg)
-  {
-    cfg_ = &cfg;
-  }
-
-protected:
-
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
-
 public: 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 }; 
@@ -614,7 +471,7 @@ public:
  * @remarks Do not forget to call setTebConfig()
  * @remarks Refer to EdgeAccelerationHolonomicStart() and EdgeAccelerationHolonomicGoal() for defining boundary values!
  */    
-class EdgeAccelerationHolonomic : public g2o::BaseMultiEdge<3, double>
+class EdgeAccelerationHolonomic : public BaseTebMultiEdge<3, double>
 {
 public:
 
@@ -624,24 +481,8 @@ public:
   EdgeAccelerationHolonomic()
   {
     this->resize(5);
-    _vertices[0]=_vertices[1]=_vertices[2]=_vertices[3]=_vertices[4]=NULL;
   }
-  
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */  
-  virtual ~EdgeAccelerationHolonomic()
-  {
-    for(unsigned int i=0;i<5;i++)
-    {
-      if(_vertices[i])
-        _vertices[i]->edges().erase(this);
-    }
-  }
-   
+    
   /**
    * @brief Actual cost function
    */   
@@ -696,52 +537,6 @@ public:
     ROS_ASSERT_MSG(std::isfinite(_error[2]), "EdgeAcceleration::computeError() rotational: _error[2]=%f\n",_error[2]);
   }
 
-  
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational acc cost, angular acc cost]^T
-   */   
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  } 
-  
-  /**
-   * @brief Read values from input stream
-   */   
-  bool read(std::istream& is)
-  {
-    is >> _measurement;
-    is >> information()(0,0); // TODO: fixme
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */    
-  bool write(std::ostream& os) const
-  {
-    os << information()(0,0) << " Error: " << _error[0] << " " << _error[1] << " " << _error[2]; // TODO: fixme
-
-    return os.good();
-  }
-  
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */   
-  void setTebConfig(const TebConfig& cfg)
-  {
-    cfg_ = &cfg;
-  }
-    
-protected:
-      
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
-      
 public: 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
    
@@ -768,7 +563,7 @@ public:
  * @remarks Do not forget to call setTebConfig()
  * @remarks Refer to EdgeAccelerationHolonomicGoal() for defining boundary values at the end of the trajectory!
  */      
-class EdgeAccelerationHolonomicStart : public g2o::BaseMultiEdge<3, const geometry_msgs::Twist*>
+class EdgeAccelerationHolonomicStart : public BaseTebMultiEdge<3, const geometry_msgs::Twist*>
 {
 public:
 
@@ -778,25 +573,9 @@ public:
   EdgeAccelerationHolonomicStart()
   {
     this->resize(3);
-    _vertices[0]=_vertices[1]=_vertices[2]=NULL;
     _measurement = NULL;
   }
-  
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */   
-  ~EdgeAccelerationHolonomicStart()
-  {
-    for(unsigned int i=0;i<3;i++)
-    {
-      if(_vertices[i]) 
-        _vertices[i]->edges().erase(this);
-    }
-  }
-  
+    
   /**
    * @brief Actual cost function
    */   
@@ -839,36 +618,6 @@ public:
     ROS_ASSERT_MSG(std::isfinite(_error[1]), "EdgeAccelerationStart::computeError() strafing: _error[1]=%f\n",_error[1]);
     ROS_ASSERT_MSG(std::isfinite(_error[2]), "EdgeAccelerationStart::computeError() rotational: _error[2]=%f\n",_error[2]);
   }
-
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational acc cost, angular acc cost]^T
-   */   
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  } 
-  
-  /**
-   * @brief Read values from input stream
-   */   
-  bool read(std::istream& is)
-  {
-    is >> information()(0,0); // TODO: fixme
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */   
-  bool write(std::ostream& os) const
-  {
-    os << information()(0,0) << " Error: " << _error[0] << " " << _error[1] << " " << _error[2]; // TODO: fixme
-    return os.good();
-  }
   
   /**
    * @brief Set the initial velocity that is taken into account for calculating the acceleration
@@ -878,21 +627,7 @@ public:
   {
     _measurement = &vel_start;
   }
-  
-  
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */    
-  void setTebConfig(const TebConfig& cfg)
-  {
-      cfg_ = &cfg;
-  }
-    
-protected:
-      
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
-      
+        
 public:       
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };    
@@ -919,7 +654,7 @@ public:
  * @remarks Do not forget to call setTebConfig()
  * @remarks Refer to EdgeAccelerationHolonomicStart() for defining boundary (initial) values at the end of the trajectory
  */  
-class EdgeAccelerationHolonomicGoal : public g2o::BaseMultiEdge<3, const geometry_msgs::Twist*>
+class EdgeAccelerationHolonomicGoal : public BaseTebMultiEdge<3, const geometry_msgs::Twist*>
 {
 public:
 
@@ -930,24 +665,8 @@ public:
   {
     _measurement = NULL;
     this->resize(3);
-    _vertices[0]=_vertices[1]=_vertices[2]=NULL;
   }
   
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */    
-  ~EdgeAccelerationHolonomicGoal()
-  {
-    for(unsigned int i=0;i<3;i++)
-    {
-      if(_vertices[i])
-        _vertices[i]->edges().erase(this);
-    }
-  }
-
   /**
    * @brief Actual cost function
    */ 
@@ -994,39 +713,6 @@ public:
   
   
   /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational acc cost, angular acc cost]^T
-   */   
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  }  
-  
-  
-  /**
-   * @brief Read values from input stream
-   */   
-  bool read(std::istream& is)
-  {
-    is >> information()(0,0); // TODO: fixme
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */    
-  bool write(std::ostream& os) const
-  {
-    os << information()(0,0) << " Error: " << _error[0] << " " << _error[1] << " " << _error[2]; // TODO: fixme
-
-    return os.good();
-  }
-  
-  
-  /**
    * @brief Set the goal / final velocity that is taken into account for calculating the acceleration
    * @param vel_goal twist message containing the translational and rotational velocity
    */    
@@ -1035,18 +721,6 @@ public:
     _measurement = &vel_goal;
   }
   
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */  
-  void setTebConfig(const TebConfig& cfg)
-  {
-    cfg_ = &cfg;
-  }
-
-protected:
-
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
 
 public: 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
