@@ -46,10 +46,10 @@
 
 #include <teb_local_planner/g2o_types/vertex_pose.h>
 #include <teb_local_planner/g2o_types/vertex_timediff.h>
+#include <teb_local_planner/g2o_types/base_teb_edges.h>
 #include <teb_local_planner/g2o_types/penalties.h>
 #include <teb_local_planner/teb_config.h>
 
-#include <g2o/core/base_multi_edge.h>
 
 #include <iostream>
 
@@ -72,7 +72,7 @@ namespace teb_local_planner
  * @see TebOptimalPlanner::AddEdgesVelocity
  * @remarks Do not forget to call setTebConfig()
  */  
-class EdgeVelocity : public g2o::BaseMultiEdge<2, double>
+class EdgeVelocity : public BaseTebMultiEdge<2, double>
 {
 public:
   
@@ -82,24 +82,8 @@ public:
   EdgeVelocity()
   {
     this->resize(3); // Since we derive from a g2o::BaseMultiEdge, set the desired number of vertices
-    for(unsigned int i=0;i<3;i++) _vertices[i] = NULL;
   }
   
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */  
-  virtual ~EdgeVelocity()
-  {
-    for(unsigned int i=0;i<3;i++)
-    {
-      if(_vertices[i])
-        _vertices[i]->edges().erase(this);
-    }
-  }
-
   /**
    * @brief Actual cost function
    */  
@@ -109,12 +93,22 @@ public:
     const VertexPose* conf1 = static_cast<const VertexPose*>(_vertices[0]);
     const VertexPose* conf2 = static_cast<const VertexPose*>(_vertices[1]);
     const VertexTimeDiff* deltaT = static_cast<const VertexTimeDiff*>(_vertices[2]);
-    Eigen::Vector2d deltaS = conf2->estimate().position() - conf1->estimate().position();
-    double vel = deltaS.norm() / deltaT->estimate();
+    
+    const Eigen::Vector2d deltaS = conf2->estimate().position() - conf1->estimate().position();
+    
+    double dist = deltaS.norm();
+    const double angle_diff = g2o::normalize_theta(conf2->theta() - conf1->theta());
+    if (cfg_->trajectory.exact_arc_length && angle_diff != 0)
+    {
+        double radius =  dist/(2*sin(angle_diff/2));
+        dist = fabs( angle_diff * radius ); // actual arg length!
+    }
+    double vel = dist / deltaT->estimate();
+    
 //     vel *= g2o::sign(deltaS[0]*cos(conf1->theta()) + deltaS[1]*sin(conf1->theta())); // consider direction
     vel *= fast_sigmoid( 100 * (deltaS.x()*cos(conf1->theta()) + deltaS.y()*sin(conf1->theta())) ); // consider direction
     
-    double omega = g2o::normalize_theta(conf2->theta() - conf1->theta()) / deltaT->estimate();
+    const double omega = angle_diff / deltaT->estimate();
   
     _error[0] = penaltyBoundToInterval(vel, -cfg_->robot.max_vel_x_backwards, cfg_->robot.max_vel_x,cfg_->optim.penalty_epsilon);
     _error[1] = penaltyBoundToInterval(omega, cfg_->robot.max_vel_theta,cfg_->optim.penalty_epsilon);
@@ -196,51 +190,6 @@ public:
 #endif
 #endif
  
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational vel cost, angular vel cost]^T
-   */ 
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  }
-
-  /**
-   * @brief Read values from input stream
-   */  
-  virtual bool read(std::istream& is)
-  {
-    is >> _measurement;
-    is >> information()(0,0);
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */  
-  virtual bool write(std::ostream& os) const
-  {
-    //os << measurement() << " ";
-    os << information()(0,0) << " Error Vel: " << _error[0] << ", Error Omega: " << _error[1];
-    return os.good();
-  }
-
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */    
-  void setTebConfig(const TebConfig& cfg)
-  {
-    cfg_ = &cfg;
-  }
-
-protected:
-  
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
-  
   
 public:
   
@@ -269,7 +218,7 @@ public:
  * @see TebOptimalPlanner::AddEdgesVelocity
  * @remarks Do not forget to call setTebConfig()
  */  
-class EdgeVelocityHolonomic : public g2o::BaseMultiEdge<3, double>
+class EdgeVelocityHolonomic : public BaseTebMultiEdge<3, double>
 {
 public:
   
@@ -279,24 +228,8 @@ public:
   EdgeVelocityHolonomic()
   {
     this->resize(3); // Since we derive from a g2o::BaseMultiEdge, set the desired number of vertices
-    for(unsigned int i=0;i<3;i++) _vertices[i] = NULL;
   }
   
-  /**
-   * @brief Destruct edge.
-   * 
-   * We need to erase vertices manually, since we want to keep them even if TebOptimalPlanner::clearGraph() is called.
-   * This is necessary since the vertices are managed by the Timed_Elastic_Band class.
-   */  
-  virtual ~EdgeVelocityHolonomic()
-  {
-    for(unsigned int i=0;i<3;i++)
-    {
-      if(_vertices[i])
-        _vertices[i]->edges().erase(this);
-    }
-  }
-
   /**
    * @brief Actual cost function
    */  
@@ -327,51 +260,6 @@ public:
                    "EdgeVelocityHolonomic::computeError() _error[0]=%f _error[1]=%f _error[2]=%f\n",_error[0],_error[1],_error[2]);
   }
  
-  /**
-   * @brief Compute and return error / cost value.
-   * 
-   * This method is called by TebOptimalPlanner::computeCurrentCost to obtain the current cost.
-   * @return 2D Cost / error vector [translational vel cost, angular vel cost]^T
-   */ 
-  ErrorVector& getError()
-  {
-    computeError();
-    return _error;
-  }
-
-  /**
-   * @brief Read values from input stream
-   */  
-  virtual bool read(std::istream& is)
-  {
-    is >> _measurement;
-    is >> information()(0,0);
-    return true;
-  }
-
-  /**
-   * @brief Write values to an output stream
-   */  
-  virtual bool write(std::ostream& os) const
-  {
-    //os << measurement() << " ";
-    os << information()(0,0) << " Error VelX: " << _error[0] << ", Error VelY: " << _error[1] << ", Error Omega: " << _error[2];
-    return os.good();
-  }
-
-  /**
-   * @brief Assign the TebConfig class for parameters.
-   * @param cfg TebConfig class
-   */    
-  void setTebConfig(const TebConfig& cfg)
-  {
-    cfg_ = &cfg;
-  }
-
-protected:
-  
-  const TebConfig* cfg_; //!< Store TebConfig class for parameters
-  
   
 public:
   
