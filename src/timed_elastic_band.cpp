@@ -254,19 +254,23 @@ double TimedElasticBand::getAccumulatedDistance() const
   return dist;
 }
 
-bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep, double timestep, int min_samples)
+bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, double diststep, double timestep, int min_samples, bool guess_backwards_motion)
 {
   if (!isInit())
   {   
     addPose(start); // add starting point
     setPoseVertexFixed(0,true); // StartConf is a fixed constraint during optimization
-	    
+        
     if (diststep!=0)
     {
       Eigen::Vector2d point_to_goal = goal.position()-start.position();
       double dir_to_goal = std::atan2(point_to_goal[1],point_to_goal[0]); // direction to goal
       double dx = diststep*std::cos(dir_to_goal);
       double dy = diststep*std::sin(dir_to_goal);
+      double orient_init = dir_to_goal;
+      // check if the goal is behind the start pose (w.r.t. start orientation)
+      if (guess_backwards_motion && point_to_goal.dot(start.orientationUnitVec()) < 0) 
+        orient_init = g2o::normalize_theta(orient_init+M_PI);
       
       double dist_to_goal = point_to_goal.norm();
       double no_steps_d = dist_to_goal/std::abs(diststep); // ignore negative values
@@ -274,9 +278,9 @@ bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, 
       
       for (unsigned int i=1; i<=no_steps; i++) // start with 1! starting point had index 0
       {
-				if (i==no_steps && no_steps_d==(float) no_steps) 
-					break; // if last conf (depending on stepsize) is equal to goal conf -> leave loop
-					addPoseAndTimeDiff(start.x()+i*dx,start.y()+i*dy,dir_to_goal,timestep);
+        if (i==no_steps && no_steps_d==(float) no_steps) 
+            break; // if last conf (depending on stepsize) is equal to goal conf -> leave loop
+        addPoseAndTimeDiff(start.x()+i*dx,start.y()+i*dy,orient_init,timestep);
       }
 
     }
@@ -306,14 +310,22 @@ bool TimedElasticBand::initTEBtoGoal(const PoseSE2& start, const PoseSE2& goal, 
 }
 
 
-bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStamped>& plan, double dt, bool estimate_orient, int min_samples)
+bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStamped>& plan, double dt, bool estimate_orient, int min_samples, bool guess_backwards_motion)
 {
   
   if (!isInit())
-  {	
-    addPose(plan.front().pose.position.x ,plan.front().pose.position.y, tf::getYaw(plan.front().pose.orientation)); // add starting point with given orientation
+  {
+    PoseSE2 start(plan.front().pose);
+    PoseSE2 goal(plan.back().pose);
+    
+    addPose(start); // add starting point with given orientation
     setPoseVertexFixed(0,true); // StartConf is a fixed constraint during optimization
-	 
+
+    bool backwards = false;
+    if (guess_backwards_motion && (goal.position()-start.position()).dot(start.orientationUnitVec()) < 0) // check if the goal is behind the start pose (w.r.t. start orientation)
+        backwards = true;
+    
+    
     for (int i=1; i<(int)plan.size()-1; ++i)
     {
         double yaw;
@@ -323,6 +335,8 @@ bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStampe
             double dx = plan[i+1].pose.position.x - plan[i].pose.position.x;
             double dy = plan[i+1].pose.position.y - plan[i].pose.position.y;
             yaw = std::atan2(dy,dx);
+            if (backwards)
+                yaw = g2o::normalize_theta(yaw+M_PI);
         }
         else 
         {
@@ -330,8 +344,6 @@ bool TimedElasticBand::initTEBtoGoal(const std::vector<geometry_msgs::PoseStampe
         }
         addPoseAndTimeDiff(plan[i].pose.position.x, plan[i].pose.position.y, yaw, dt);
     }
-    
-    PoseSE2 goal(plan.back().pose);
     
     // if number of samples is not larger than min_samples, insert manually
     if ( sizePoses() < min_samples-1 )
@@ -546,7 +558,7 @@ void TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_sta
     // (remove already passed states)
     double dist_cache = (new_start->position()- Pose(0).position()).norm();
     double dist;
-    int lookahead = std::min<int>( int(sizePoses())-min_samples, 10); // satisfy min_samples, otherwise max 10 samples
+    int lookahead = std::min<int>( sizePoses()-min_samples, 10); // satisfy min_samples, otherwise max 10 samples
 
     int nearest_idx = 0;
     for (int i = 1; i<=lookahead; ++i)
@@ -564,7 +576,7 @@ void TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_sta
     if (nearest_idx>0)
     {
       // nearest_idx is equal to the number of samples to be removed (since it counts from 0 ;-) )
-      // WARNING delete starting at pose 1, and overwrite the original pose(0) wiht new_start, since pose(0) is fixed during optimization!
+      // WARNING delete starting at pose 1, and overwrite the original pose(0) with new_start, since Pose(0) is fixed during optimization!
       deletePoses(1, nearest_idx);  // delete first states such that the closest state is the new first one
       deleteTimeDiffs(1, nearest_idx); // delete corresponding time differences
     }
@@ -579,6 +591,37 @@ void TimedElasticBand::updateAndPruneTEB(boost::optional<const PoseSE2&> new_sta
   }
 };
 
+
+bool TimedElasticBand::isTrajectoryInsideRegion(double radius, double max_dist_behind_robot, int skip_poses)
+{
+    if (sizePoses()<=0)
+        return true;
+    
+    double radius_sq = radius*radius;
+    double max_dist_behind_robot_sq = max_dist_behind_robot*max_dist_behind_robot;
+    Eigen::Vector2d robot_orient = Pose(0).orientationUnitVec();
+    
+    for (int i=1; i<sizePoses(); i=i+skip_poses+1)
+    {
+        Eigen::Vector2d dist_vec = Pose(i).position()-Pose(0).position();
+        double dist_sq = dist_vec.squaredNorm();
+        
+        if (dist_sq > radius_sq)
+        {
+            ROS_INFO("outside robot");
+            return false;
+        }
+        
+        // check behind the robot with a different distance, if specified (or >=0)
+        if (max_dist_behind_robot >= 0 && dist_vec.dot(robot_orient) < 0 && dist_sq > max_dist_behind_robot_sq)
+        {
+            ROS_INFO("outside robot behind");
+            return false;
+        }
+        
+    }
+    return true;
+}
 
 
 

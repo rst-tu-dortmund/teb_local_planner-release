@@ -168,14 +168,18 @@ bool TebOptimalPlanner::optimizeTEB(int iterations_innerloop, int iterations_out
 {
   if (cfg_->optim.optimization_activate==false) 
     return false;
+  
   bool success = false;
   optimized_ = false;
+  
+  double weight_multiplier = 1.0;
+  
   for(int i=0; i<iterations_outerloop; ++i)
   {
     if (cfg_->trajectory.teb_autosize)
       teb_.autoResize(cfg_->trajectory.dt_ref, cfg_->trajectory.dt_hysteresis, cfg_->trajectory.min_samples);
 
-    success = buildGraph();
+    success = buildGraph(weight_multiplier);
     if (!success) 
     {
         clearGraph();
@@ -193,6 +197,8 @@ bool TebOptimalPlanner::optimizeTEB(int iterations_innerloop, int iterations_out
       computeCurrentCost(obst_cost_scale, viapoint_cost_scale, alternative_time_cost);
       
     clearGraph();
+    
+    weight_multiplier *= cfg_->optim.weight_adapt_factor;
   }
 
   return true;
@@ -219,7 +225,7 @@ bool TebOptimalPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& init
   if (!teb_.isInit())
   {
     // init trajectory
-    teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples);
+    teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
   } 
   else // warm start
   {
@@ -231,7 +237,7 @@ bool TebOptimalPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& init
     {
       ROS_DEBUG("New goal: distance to existing goal is higher than the specified threshold. Reinitalizing trajectories.");
       teb_.clearTimedElasticBand();
-      teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples);
+      teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
     }
   }
   if (start_vel)
@@ -259,7 +265,7 @@ bool TebOptimalPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const ge
   if (!teb_.isInit())
   {
     // init trajectory
-    teb_.initTEBtoGoal(start, goal, 0, 1, cfg_->trajectory.min_samples); // 0 intermediate samples, but dt=1 -> autoResize will add more samples before calling first optimization
+    teb_.initTEBtoGoal(start, goal, 0, 1, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion); // 0 intermediate samples, but dt=1 -> autoResize will add more samples before calling first optimization
   }
   else // warm start
   {
@@ -269,7 +275,7 @@ bool TebOptimalPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const ge
     {
       ROS_DEBUG("New goal: distance to existing goal is higher than the specified threshold. Reinitalizing trajectories.");
       teb_.clearTimedElasticBand();
-      teb_.initTEBtoGoal(start, goal, 0, 1, cfg_->trajectory.min_samples);
+      teb_.initTEBtoGoal(start, goal, 0, 1, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
     }
   }
   if (start_vel)
@@ -284,7 +290,7 @@ bool TebOptimalPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const ge
 }
 
 
-bool TebOptimalPlanner::buildGraph()
+bool TebOptimalPlanner::buildGraph(double weight_multiplier)
 {
   if (!optimizer_->edges().empty() || !optimizer_->vertices().empty())
   {
@@ -297,9 +303,9 @@ bool TebOptimalPlanner::buildGraph()
   
   // add Edges (local cost functions)
   if (cfg_->obstacles.legacy_obstacle_association)
-    AddEdgesObstaclesLegacy();
+    AddEdgesObstaclesLegacy(weight_multiplier);
   else
-    AddEdgesObstacles();
+    AddEdgesObstacles(weight_multiplier);
   
   //AddEdgesDynamicObstacles();
   
@@ -379,19 +385,19 @@ void TebOptimalPlanner::AddTEBVertices()
 }
 
 
-void TebOptimalPlanner::AddEdgesObstacles()
+void TebOptimalPlanner::AddEdgesObstacles(double weight_multiplier)
 {
-  if (cfg_->optim.weight_obstacle==0 || obstacles_==nullptr )
+  if (cfg_->optim.weight_obstacle==0 || weight_multiplier==0 || obstacles_==nullptr )
     return; // if weight equals zero skip adding edges!
     
   
   bool inflated = cfg_->obstacles.inflation_dist > cfg_->obstacles.min_obstacle_dist;
 
   Eigen::Matrix<double,1,1> information;
-  information.fill(cfg_->optim.weight_obstacle);
+  information.fill(cfg_->optim.weight_obstacle * weight_multiplier);
   
   Eigen::Matrix<double,2,2> information_inflated;
-  information_inflated(0,0) = cfg_->optim.weight_obstacle;
+  information_inflated(0,0) = cfg_->optim.weight_obstacle * weight_multiplier;
   information_inflated(1,1) = cfg_->optim.weight_inflation;
   information_inflated(0,1) = information(1,0) = 0;
     
@@ -508,16 +514,16 @@ void TebOptimalPlanner::AddEdgesObstacles()
 }
 
 
-void TebOptimalPlanner::AddEdgesObstaclesLegacy()
+void TebOptimalPlanner::AddEdgesObstaclesLegacy(double weight_multiplier)
 {
-  if (cfg_->optim.weight_obstacle==0 || obstacles_==NULL )
+  if (cfg_->optim.weight_obstacle==0 || weight_multiplier==0 || obstacles_==nullptr)
     return; // if weight equals zero skip adding edges!
 
   Eigen::Matrix<double,1,1> information; 
-  information.fill(cfg_->optim.weight_obstacle);
+  information.fill(cfg_->optim.weight_obstacle * weight_multiplier);
     
   Eigen::Matrix<double,2,2> information_inflated;
-  information_inflated(0,0) = cfg_->optim.weight_obstacle;
+  information_inflated(0,0) = cfg_->optim.weight_obstacle * weight_multiplier;
   information_inflated(1,1) = cfg_->optim.weight_inflation;
   information_inflated(0,1) = information(1,0) = 0;
   
@@ -1137,8 +1143,8 @@ void TebOptimalPlanner::getFullTrajectory(std::vector<TrajectoryPointMsg>& traje
 bool TebOptimalPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* costmap_model, const std::vector<geometry_msgs::Point>& footprint_spec,
                                              double inscribed_radius, double circumscribed_radius, int look_ahead_idx)
 {
-  if (look_ahead_idx < 0 || look_ahead_idx >= (int) teb().sizePoses())
-    look_ahead_idx = (int)teb().sizePoses() - 1;
+  if (look_ahead_idx < 0 || look_ahead_idx >= teb().sizePoses())
+    look_ahead_idx = teb().sizePoses() - 1;
   
   for (int i=0; i <= look_ahead_idx; ++i)
   {           

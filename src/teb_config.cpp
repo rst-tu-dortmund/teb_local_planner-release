@@ -53,6 +53,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("dt_hysteresis", trajectory.dt_hysteresis, trajectory.dt_hysteresis);
   nh.param("min_samples", trajectory.min_samples, trajectory.min_samples);
   nh.param("global_plan_overwrite_orientation", trajectory.global_plan_overwrite_orientation, trajectory.global_plan_overwrite_orientation);
+  nh.param("allow_init_with_backwards_motion", trajectory.allow_init_with_backwards_motion, trajectory.allow_init_with_backwards_motion);
   nh.param("global_plan_via_point_sep", trajectory.global_plan_viapoint_sep, trajectory.global_plan_viapoint_sep);
   nh.param("via_points_ordered", trajectory.via_points_ordered, trajectory.via_points_ordered);
   nh.param("max_global_plan_lookahead_dist", trajectory.max_global_plan_lookahead_dist, trajectory.max_global_plan_lookahead_dist);
@@ -61,6 +62,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("feasibility_check_no_poses", trajectory.feasibility_check_no_poses, trajectory.feasibility_check_no_poses);
   nh.param("publish_feedback", trajectory.publish_feedback, trajectory.publish_feedback);
   nh.param("shrink_horizon_backup", trajectory.shrink_horizon_backup, trajectory.shrink_horizon_backup);
+  nh.param("shrink_horizon_min_duration", trajectory.shrink_horizon_min_duration, trajectory.shrink_horizon_min_duration);
   
   // Robot
   nh.param("max_vel_x", robot.max_vel_x, robot.max_vel_x);
@@ -111,6 +113,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("weight_inflation", optim.weight_inflation, optim.weight_inflation);
   nh.param("weight_dynamic_obstacle", optim.weight_dynamic_obstacle, optim.weight_dynamic_obstacle);    
   nh.param("weight_viapoint", optim.weight_viapoint, optim.weight_viapoint);
+  nh.param("weight_adapt_factor", optim.weight_adapt_factor, optim.weight_adapt_factor);
   
   // Homotopy Class Planner
   nh.param("enable_homotopy_class_planning", hcp.enable_homotopy_class_planning, hcp.enable_homotopy_class_planning); 
@@ -118,6 +121,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("simple_exploration", hcp.simple_exploration, hcp.simple_exploration); 
   nh.param("max_number_classes", hcp.max_number_classes, hcp.max_number_classes); 
   nh.param("selection_obst_cost_scale", hcp.selection_obst_cost_scale, hcp.selection_obst_cost_scale);
+  nh.param("selection_prefer_initial_plan", hcp.selection_prefer_initial_plan, hcp.selection_prefer_initial_plan);
   nh.param("selection_viapoint_cost_scale", hcp.selection_viapoint_cost_scale, hcp.selection_viapoint_cost_scale);
   nh.param("selection_cost_hysteresis", hcp.selection_cost_hysteresis, hcp.selection_cost_hysteresis); 
   nh.param("selection_alternative_time_cost", hcp.selection_alternative_time_cost, hcp.selection_alternative_time_cost); 
@@ -144,6 +148,7 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   trajectory.dt_ref = cfg.dt_ref;
   trajectory.dt_hysteresis = cfg.dt_hysteresis;
   trajectory.global_plan_overwrite_orientation = cfg.global_plan_overwrite_orientation;
+  trajectory.allow_init_with_backwards_motion = cfg.allow_init_with_backwards_motion;
   trajectory.global_plan_viapoint_sep = cfg.global_plan_viapoint_sep;
   trajectory.via_points_ordered = cfg.via_points_ordered;
   trajectory.max_global_plan_lookahead_dist = cfg.max_global_plan_lookahead_dist;
@@ -201,12 +206,14 @@ void TebConfig::reconfigure(TebLocalPlannerReconfigureConfig& cfg)
   optim.weight_inflation = cfg.weight_inflation;
   optim.weight_dynamic_obstacle = cfg.weight_dynamic_obstacle;
   optim.weight_viapoint = cfg.weight_viapoint;
+  optim.weight_adapt_factor = cfg.weight_adapt_factor;
   
   // Homotopy Class Planner
   hcp.enable_multithreading = cfg.enable_multithreading;
   hcp.simple_exploration = cfg.simple_exploration;
   hcp.max_number_classes = cfg.max_number_classes; 
   hcp.selection_cost_hysteresis = cfg.selection_cost_hysteresis;
+  hcp.selection_prefer_initial_plan = cfg.selection_prefer_initial_plan;
   hcp.selection_obst_cost_scale = cfg.selection_obst_cost_scale;
   hcp.selection_viapoint_cost_scale = cfg.selection_viapoint_cost_scale;
   hcp.selection_alternative_time_cost = cfg.selection_alternative_time_cost;
@@ -269,6 +276,10 @@ void TebConfig::checkParameters() const
   
   if (robot.cmd_angle_instead_rotvel && robot.min_turning_radius==0)
     ROS_WARN("TebLocalPlannerROS() Param Warning: parameter cmd_angle_instead_rotvel is non-zero but min_turning_radius is set to zero: undesired behavior. You are mixing a carlike and a diffdrive robot");
+  
+  // positive weight_adapt_factor
+  if (optim.weight_adapt_factor < 1.0)
+      ROS_WARN("TebLocalPlannerROS() Param Warning: parameter weight_adapt_factor shoud be >= 1.0");
   
 }    
 

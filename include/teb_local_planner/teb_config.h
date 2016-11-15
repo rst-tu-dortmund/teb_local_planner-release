@@ -73,6 +73,7 @@ public:
     double dt_hysteresis; //!< Hysteresis for automatic resizing depending on the current temporal resolution (dt): usually 10% of dt_ref
     int min_samples; //!< Minimum number of samples (should be always greater than 2)
     bool global_plan_overwrite_orientation; //!< Overwrite orientation of local subgoals provided by the global planner
+    bool allow_init_with_backwards_motion; //!< If true, the underlying trajectories might be initialized with backwards motions in case the goal is behind the start within the local costmap (this is only recommended if the robot is equipped with rear sensors)
     double global_plan_viapoint_sep; //!< Min. separation between each two consecutive via-points extracted from the global plan (if negative: disabled)
     bool via_points_ordered; //!< If true, the planner adheres to the order of via-points in the storage container
     double max_global_plan_lookahead_dist; //!< Specify maximum length (cumulative Euclidean distances) of the subset of the global plan taken into account for optimization [if <=0: disabled; the length is also bounded by the local costmap size!]
@@ -81,6 +82,7 @@ public:
     int feasibility_check_no_poses; //!< Specify up to which pose on the predicted plan the feasibility should be checked each sampling interval.
     bool publish_feedback; //!< Publish planner feedback containing the full trajectory and a list of active obstacles (should be enabled only for evaluation or debugging purposes)
     bool shrink_horizon_backup; //!< Allows the planner to shrink the horizon temporary (50%) in case of automatically detected issues.
+    double shrink_horizon_min_duration; //!< Specify minimum duration for the reduced horizon in case an infeasible trajectory is detected.
   } trajectory; //!< Trajectory related parameters
     
   //! Robot related parameters
@@ -148,6 +150,8 @@ public:
     double weight_inflation; //!< Optimization weight for the inflation penalty (should be small)
     double weight_dynamic_obstacle; //!< Optimization weight for satisfying a minimum separation from dynamic obstacles    
     double weight_viapoint; //!< Optimization weight for minimizing the distance to via-points
+    
+    double weight_adapt_factor; //!< Some special weights (currently 'weight_obstacle') are repeatedly scaled by this factor in each outer TEB iteration (weight_new = weight_old*factor); Increasing weights iteratively instead of setting a huge value a-priori leads to better numerical conditions of the underlying optimization problem.
   } optim; //!< Optimization related parameters
   
   
@@ -158,6 +162,7 @@ public:
     bool simple_exploration; //!< If true, distinctive trajectories are explored using a simple left-right approach (pass each obstacle on the left or right side) for path generation, otherwise sample possible roadmaps randomly in a specified region between start and goal.
     int max_number_classes; //!< Specify the maximum number of allowed alternative homotopy classes (limits computational effort)
     double selection_cost_hysteresis; //!< Specify how much trajectory cost must a new candidate have w.r.t. a previously selected trajectory in order to be selected (selection if new_cost < old_cost*factor).
+    double selection_prefer_initial_plan; //!< Specify a cost reduction in the interval (0,1) for the trajectory in the equivalence class of the initial plan.
     double selection_obst_cost_scale; //!< Extra scaling of obstacle cost terms just for selecting the 'best' candidate.
     double selection_viapoint_cost_scale; //!< Extra scaling of via-point cost terms just for selecting the 'best' candidate.
     bool selection_alternative_time_cost; //!< If true, time cost is replaced by the total transition time.
@@ -203,6 +208,7 @@ public:
     trajectory.dt_hysteresis = 0.1;
     trajectory.min_samples = 3;
     trajectory.global_plan_overwrite_orientation = true;
+    trajectory.allow_init_with_backwards_motion = false;
     trajectory.global_plan_viapoint_sep = -1;
     trajectory.via_points_ordered = false;
     trajectory.max_global_plan_lookahead_dist = 1;
@@ -211,6 +217,7 @@ public:
     trajectory.feasibility_check_no_poses = 5;
     trajectory.publish_feedback = false;
     trajectory.shrink_horizon_backup = true;
+    trajectory.shrink_horizon_min_duration = 10;
     
     // Robot
          
@@ -267,6 +274,8 @@ public:
     optim.weight_dynamic_obstacle = 10;
     optim.weight_viapoint = 1;
     
+    optim.weight_adapt_factor = 2.0;
+    
     // Homotopy Class Planner
    
     hcp.enable_homotopy_class_planning = true;
@@ -274,6 +283,7 @@ public:
     hcp.simple_exploration = false;
     hcp.max_number_classes = 5; 
     hcp.selection_cost_hysteresis = 1.0;
+    hcp.selection_prefer_initial_plan = 0.95;
     hcp.selection_obst_cost_scale = 100.0;
     hcp.selection_viapoint_cost_scale = 1.0;
     hcp.selection_alternative_time_cost = false;
