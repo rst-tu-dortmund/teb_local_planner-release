@@ -46,7 +46,8 @@ namespace teb_local_planner
 
 // ============== Implementation ===================
 
-TebOptimalPlanner::TebOptimalPlanner() : cfg_(NULL), obstacles_(NULL), via_points_(NULL), cost_(HUGE_VAL), robot_model_(new PointRobotFootprint()), initialized_(false), optimized_(false)
+TebOptimalPlanner::TebOptimalPlanner() : cfg_(NULL), obstacles_(NULL), via_points_(NULL), cost_(HUGE_VAL), prefer_rotdir_(RotType::none),
+                                         robot_model_(new PointRobotFootprint()), initialized_(false), optimized_(false)
 {    
 }
   
@@ -135,6 +136,7 @@ void TebOptimalPlanner::registerG2OTypes()
   factory->registerType("EDGE_INFLATED_OBSTACLE", new g2o::HyperGraphElementCreator<EdgeInflatedObstacle>);
   factory->registerType("EDGE_DYNAMIC_OBSTACLE", new g2o::HyperGraphElementCreator<EdgeDynamicObstacle>);
   factory->registerType("EDGE_VIA_POINT", new g2o::HyperGraphElementCreator<EdgeViaPoint>);
+  factory->registerType("EDGE_PREFER_ROTDIR", new g2o::HyperGraphElementCreator<EdgePreferRotDir>);
   return;
 }
 
@@ -177,7 +179,7 @@ bool TebOptimalPlanner::optimizeTEB(int iterations_innerloop, int iterations_out
   for(int i=0; i<iterations_outerloop; ++i)
   {
     if (cfg_->trajectory.teb_autosize)
-      teb_.autoResize(cfg_->trajectory.dt_ref, cfg_->trajectory.dt_hysteresis, cfg_->trajectory.min_samples);
+      teb_.autoResize(cfg_->trajectory.dt_ref, cfg_->trajectory.dt_hysteresis, cfg_->trajectory.min_samples, cfg_->trajectory.max_samples);
 
     success = buildGraph(weight_multiplier);
     if (!success) 
@@ -204,7 +206,6 @@ bool TebOptimalPlanner::optimizeTEB(int iterations_innerloop, int iterations_out
   return true;
 }
 
-
 void TebOptimalPlanner::setVelocityStart(const geometry_msgs::Twist& vel_start)
 {
   vel_start_.first = true;
@@ -225,7 +226,7 @@ bool TebOptimalPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& init
   if (!teb_.isInit())
   {
     // init trajectory
-    teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
+    teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, cfg_->trajectory.global_plan_overwrite_orientation, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
   } 
   else // warm start
   {
@@ -322,6 +323,9 @@ bool TebOptimalPlanner::buildGraph(double weight_multiplier)
   else
     AddEdgesKinematicsCarlike(); // we have a carlike robot since the turning radius is bounded from below.
 
+    
+  AddEdgesPreferRotDir();
+    
   return true;  
 }
 
@@ -399,7 +403,7 @@ void TebOptimalPlanner::AddEdgesObstacles(double weight_multiplier)
   Eigen::Matrix<double,2,2> information_inflated;
   information_inflated(0,0) = cfg_->optim.weight_obstacle * weight_multiplier;
   information_inflated(1,1) = cfg_->optim.weight_inflation;
-  information_inflated(0,1) = information(1,0) = 0;
+  information_inflated(0,1) = information_inflated(1,0) = 0;
     
   // iterate all teb points (skip first and last)
   for (int i=1; i < teb_.sizePoses()-1; ++i)
@@ -525,7 +529,7 @@ void TebOptimalPlanner::AddEdgesObstaclesLegacy(double weight_multiplier)
   Eigen::Matrix<double,2,2> information_inflated;
   information_inflated(0,0) = cfg_->optim.weight_obstacle * weight_multiplier;
   information_inflated(1,1) = cfg_->optim.weight_inflation;
-  information_inflated(0,1) = information(1,0) = 0;
+  information_inflated(0,1) = information_inflated(1,0) = 0;
   
   bool inflated = cfg_->obstacles.inflation_dist > cfg_->obstacles.min_obstacle_dist;
     
@@ -893,6 +897,31 @@ void TebOptimalPlanner::AddEdgesKinematicsCarlike()
   }  
 }
 
+
+void TebOptimalPlanner::AddEdgesPreferRotDir()
+{
+  if (prefer_rotdir_ == RotType::none || cfg_->optim.weight_prefer_rotdir==0)
+    return; // if weight equals zero skip adding edges!
+  
+  // create edge for satisfiying kinematic constraints
+  Eigen::Matrix<double,1,1> information_rotdir;
+  information_rotdir.fill(cfg_->optim.weight_prefer_rotdir);
+  
+  for (int i=0; i < teb_.sizePoses()-1 && i < 3; ++i) // currently: apply to first 3 rotations
+  {
+    EdgePreferRotDir* rotdir_edge = new EdgePreferRotDir;
+    rotdir_edge->setVertex(0,teb_.PoseVertex(i));
+    rotdir_edge->setVertex(1,teb_.PoseVertex(i+1));      
+    rotdir_edge->setInformation(information_rotdir);
+    
+    if (prefer_rotdir_ == RotType::left)
+        rotdir_edge->preferLeft();
+    else 
+        rotdir_edge->preferRight();
+    
+    optimizer_->addEdge(rotdir_edge);
+  }
+}
 
 void TebOptimalPlanner::computeCurrentCost(double obst_cost_scale, double viapoint_cost_scale, bool alternative_time_cost)
 { 
