@@ -594,6 +594,8 @@ protected:
   /**
    * @brief Add all edges (local cost functions) related to keeping a distance from static obstacles
    * @warning do not combine with AddEdgesInflatedObstacles
+<<<<<<< HEAD
+=======
    * @see EdgeObstacle
    * @see buildGraph
    * @see optimizeGraph

@@ -177,7 +177,7 @@ bool TebOptimalPlanner::optimizeTEB(int iterations_innerloop, int iterations_out
   for(int i=0; i<iterations_outerloop; ++i)
   {
     if (cfg_->trajectory.teb_autosize)
-      teb_.autoResize(cfg_->trajectory.dt_ref, cfg_->trajectory.dt_hysteresis, cfg_->trajectory.min_samples);
+      teb_.autoResize(cfg_->trajectory.dt_ref, cfg_->trajectory.dt_hysteresis, cfg_->trajectory.min_samples, cfg_->trajectory.max_samples);
 
     success = buildGraph(weight_multiplier);
     if (!success) 
@@ -225,7 +225,7 @@ bool TebOptimalPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& init
   if (!teb_.isInit())
   {
     // init trajectory
-    teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, true, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
+    teb_.initTEBtoGoal(initial_plan, cfg_->trajectory.dt_ref, cfg_->trajectory.global_plan_overwrite_orientation, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
   } 
   else // warm start
   {
@@ -399,7 +399,7 @@ void TebOptimalPlanner::AddEdgesObstacles(double weight_multiplier)
   Eigen::Matrix<double,2,2> information_inflated;
   information_inflated(0,0) = cfg_->optim.weight_obstacle * weight_multiplier;
   information_inflated(1,1) = cfg_->optim.weight_inflation;
-  information_inflated(0,1) = information(1,0) = 0;
+  information_inflated(0,1) = information_inflated(1,0) = 0;
     
   // iterate all teb points (skip first and last)
   for (int i=1; i < teb_.sizePoses()-1; ++i)
@@ -525,7 +525,7 @@ void TebOptimalPlanner::AddEdgesObstaclesLegacy(double weight_multiplier)
   Eigen::Matrix<double,2,2> information_inflated;
   information_inflated(0,0) = cfg_->optim.weight_obstacle * weight_multiplier;
   information_inflated(1,1) = cfg_->optim.weight_inflation;
-  information_inflated(0,1) = information(1,0) = 0;
+  information_inflated(0,1) = information_inflated(1,0) = 0;
   
   bool inflated = cfg_->obstacles.inflation_dist > cfg_->obstacles.min_obstacle_dist;
     
@@ -536,7 +536,7 @@ void TebOptimalPlanner::AddEdgesObstaclesLegacy(double weight_multiplier)
     
     int index;
     
-    if (cfg_->obstacles.obstacle_poses_affected >= teb_.sizePoses())
+    if (cfg_->obstacles.obstacle_poses_affected >= (int)teb_.sizePoses())
       index =  teb_.sizePoses() / 2;
     else
       index = teb_.findClosestTrajectoryPose(*(obst->get()));
