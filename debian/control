@@ -1,0 +1,13 @@
+Source: ros-kinetic-teb-local-planner
+Section: misc
+Priority: extra
+Maintainer: Christoph Rösmann <christoph.roesmann@tu-dortmund.de>
+Build-Depends: debhelper (>= 9.0.0), ros-kinetic-base-local-planner, ros-kinetic-catkin, ros-kinetic-cmake-modules, ros-kinetic-costmap-2d, ros-kinetic-costmap-converter, ros-kinetic-dynamic-reconfigure, ros-kinetic-geometry-msgs, ros-kinetic-interactive-markers, ros-kinetic-libg2o, ros-kinetic-message-generation, ros-kinetic-nav-core, ros-kinetic-nav-msgs, ros-kinetic-pluginlib, ros-kinetic-roscpp, ros-kinetic-std-msgs, ros-kinetic-tf, ros-kinetic-tf-conversions, ros-kinetic-visualization-msgs
+Homepage: http://wiki.ros.org/teb_local_planner
+Standards-Version: 3.9.2
+
+Package: ros-kinetic-teb-local-planner
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ros-kinetic-base-local-planner, ros-kinetic-costmap-2d, ros-kinetic-costmap-converter, ros-kinetic-dynamic-reconfigure, ros-kinetic-geometry-msgs, ros-kinetic-interactive-markers, ros-kinetic-libg2o, ros-kinetic-message-runtime, ros-kinetic-nav-core, ros-kinetic-nav-msgs, ros-kinetic-pluginlib, ros-kinetic-roscpp, ros-kinetic-std-msgs, ros-kinetic-tf, ros-kinetic-tf-conversions, ros-kinetic-visualization-msgs
+Description: The teb_local_planner package implements a plugin to the base_local_planner of the 2D navigation stack.
+ The underlying method called Timed Elastic Band locally optimizes the robot's trajectory with respect to trajectory execution time, separation from obstacles and compliance with kinodynamic constraints at runtime.
