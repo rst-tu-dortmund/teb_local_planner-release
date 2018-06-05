@@ -2,7 +2,7 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.6.8 (2018-06-05)
+0.7.1 (2018-06-05)
 ------------------
 * Fixed a crucial bug (from 0.6.6): A cost function for prefering a clockwise resp. anti-clockwise turn was enabled by default.
   This cost function was only intendet to be active only for recovering from an oscillating robot. 
@@ -17,7 +17,7 @@ Changelog for package teb_local_planner
 * Normalize marker quaternions in *test_optim_node*
 * Contributors: Christoph Rösmann, Alexander Reimann, Mikael Arguedas, wollip
 
-0.6.7 (2017-09-21)
+0.7.0 (2017-09-23)
 ------------------
 * This update introduces support for dynamic obstacles (thanks to Franz Albers, who implemented and tested the code).
   Dynamic obstacle support requires parameter *include\_dynamic\_obstacles* to be activated.
