@@ -2,7 +2,7 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.6.9 (2018-06-08)
+0.7.2 (2018-06-08)
 ------------------
 * Adds the possibility to provide via-points via a topic. 
   Currently, the user needs to decide whether to receive via-points from topic or to obtain them from the global reference plan 
@@ -10,7 +10,7 @@ Changelog for package teb_local_planner
   A small test script publish_viapoints.py is provided to demonstrate the feature within test_optim_node.
 * Contributors: Christoph Rösmann
 
-0.6.8 (2018-06-05)
+0.7.1 (2018-06-05)
 ------------------
 * Fixed a crucial bug (from 0.6.6): A cost function for prefering a clockwise resp. anti-clockwise turn was enabled by default.
   This cost function was only intendet to be active only for recovering from an oscillating robot. 
@@ -25,7 +25,7 @@ Changelog for package teb_local_planner
 * Normalize marker quaternions in *test_optim_node*
 * Contributors: Christoph Rösmann, Alexander Reimann, Mikael Arguedas, wollip
 
-0.6.7 (2017-09-21)
+0.7.0 (2017-09-23)
 ------------------
 * This update introduces support for dynamic obstacles (thanks to Franz Albers, who implemented and tested the code).
   Dynamic obstacle support requires parameter *include\_dynamic\_obstacles* to be activated.
