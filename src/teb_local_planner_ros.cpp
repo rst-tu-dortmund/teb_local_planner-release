@@ -38,8 +38,7 @@
 
 #include <teb_local_planner/teb_local_planner_ros.h>
 
-#include <tf2_eigen/tf2_eigen.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf_conversions/tf_eigen.h>
 
 #include <boost/algorithm/string.hpp>
 
@@ -56,7 +55,7 @@
 
 
 // register this planner as a BaseLocalPlanner plugin
-PLUGINLIB_EXPORT_CLASS(teb_local_planner::TebLocalPlannerROS, nav_core::BaseLocalPlanner)
+PLUGINLIB_DECLARE_CLASS(teb_local_planner, TebLocalPlannerROS, teb_local_planner::TebLocalPlannerROS, nav_core::BaseLocalPlanner)
 
 namespace teb_local_planner
 {
@@ -64,8 +63,8 @@ namespace teb_local_planner
 
 TebLocalPlannerROS::TebLocalPlannerROS() : costmap_ros_(NULL), tf_(NULL), costmap_model_(NULL),
                                            costmap_converter_loader_("costmap_converter", "costmap_converter::BaseCostmapToPolygons"),
-                                           dynamic_recfg_(NULL), custom_via_points_active_(false), goal_reached_(false), no_infeasible_plans_(0),
-                                           last_preferred_rotdir_(RotType::none), initialized_(false)
+                                           dynamic_recfg_(NULL), goal_reached_(false), no_infeasible_plans_(0), 
+                                           initialized_(false)
 {
 }
 
@@ -79,7 +78,7 @@ void TebLocalPlannerROS::reconfigureCB(TebLocalPlannerReconfigureConfig& config,
   cfg_.reconfigure(config);
 }
 
-void TebLocalPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros)
+void TebLocalPlannerROS::initialize(std::string name, tf::TransformListener* tf, costmap_2d::Costmap2DROS* costmap_ros)
 {
   // check if the plugin is already initialized
   if(!initialized_)
@@ -92,9 +91,21 @@ void TebLocalPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costm
     
     // reserve some memory for obstacles
     obstacles_.reserve(500);
+    
+    // init some variables
+    tf_ = tf;
+    costmap_ros_ = costmap_ros;
+    costmap_ = costmap_ros_->getCostmap(); // locking should be done in MoveBase.
+    
+    costmap_model_ = boost::make_shared<base_local_planner::CostmapModel>(*costmap_);
+
+    
+    global_frame_ = costmap_ros_->getGlobalFrameID();
+    cfg_.map_frame = global_frame_; // TODO
+    robot_base_frame_ = costmap_ros_->getBaseFrameID();
         
     // create visualization instance	
-    visualization_ = TebVisualizationPtr(new TebVisualization(nh, cfg_)); 
+    visualization_ = TebVisualizationPtr(new TebVisualization(nh, cfg_.map_frame)); 
         
     // create robot footprint/contour model for optimization
     RobotFootprintModelPtr robot_model = getRobotFootprintFromParamServer(nh);
@@ -111,17 +122,6 @@ void TebLocalPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costm
       ROS_INFO("Parallel planning in distinctive topologies disabled.");
     }
     
-    // init other variables
-    tf_ = tf;
-    costmap_ros_ = costmap_ros;
-    costmap_ = costmap_ros_->getCostmap(); // locking should be done in MoveBase.
-    
-    costmap_model_ = boost::make_shared<base_local_planner::CostmapModel>(*costmap_);
-
-    global_frame_ = costmap_ros_->getGlobalFrameID();
-    cfg_.map_frame = global_frame_; // TODO
-    robot_base_frame_ = costmap_ros_->getBaseFrameID();
-
     //Initialize a costmap to polygon converter
     if (!cfg_.obstacles.costmap_converter_plugin.empty())
     {
@@ -131,7 +131,6 @@ void TebLocalPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costm
         std::string converter_name = costmap_converter_loader_.getName(cfg_.obstacles.costmap_converter_plugin);
         // replace '::' by '/' to convert the c++ namespace to a NodeHandle namespace
         boost::replace_all(converter_name, "::", "/");
-        costmap_converter_->setOdomTopic(cfg_.odom_topic);
         costmap_converter_->initialize(ros::NodeHandle(nh, "costmap_converter/" + converter_name));
         costmap_converter_->setCostmap2D(costmap_);
         
@@ -165,15 +164,6 @@ void TebLocalPlannerROS::initialize(std::string name, tf2_ros::Buffer* tf, costm
         
     // setup callback for custom obstacles
     custom_obst_sub_ = nh.subscribe("obstacles", 1, &TebLocalPlannerROS::customObstacleCB, this);
-
-    // setup callback for custom via-points
-    via_points_sub_ = nh.subscribe("via_points", 1, &TebLocalPlannerROS::customViaPointsCB, this);
-    
-    // initialize failure detector
-    ros::NodeHandle nh_move_base("~");
-    double controller_frequency = 5;
-    nh_move_base.param("controller_frequency", controller_frequency, controller_frequency);
-    failure_detector_.setBufferLength(std::round(cfg_.recovery.oscillation_filter_duration*controller_frequency));
     
     // set initialized flag
     initialized_ = true;
@@ -226,16 +216,16 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   goal_reached_ = false;  
   
   // Get robot pose
-  geometry_msgs::PoseStamped robot_pose;
+  tf::Stamped<tf::Pose> robot_pose;
   costmap_ros_->getRobotPose(robot_pose);
-  robot_pose_ = PoseSE2(robot_pose.pose);
+  robot_pose_ = PoseSE2(robot_pose);
     
   // Get robot velocity
-  geometry_msgs::PoseStamped robot_vel_tf;
+  tf::Stamped<tf::Pose> robot_vel_tf;
   odom_helper_.getRobotVel(robot_vel_tf);
-  robot_vel_.linear.x = robot_vel_tf.pose.position.x;
-  robot_vel_.linear.y = robot_vel_tf.pose.position.y;
-  robot_vel_.angular.z = tf2::getYaw(robot_vel_tf.pose.orientation);
+  robot_vel_.linear.x = robot_vel_tf.getOrigin().getX();
+  robot_vel_.linear.y = robot_vel_tf.getOrigin().getY();
+  robot_vel_.angular.z = tf::getYaw(robot_vel_tf.getRotation());
   
   // prune global plan to cut off parts of the past (spatially before the robot)
   pruneGlobalPlan(*tf_, robot_pose, global_plan_);
@@ -243,7 +233,7 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   // Transform global plan to the frame of interest (w.r.t. the local costmap)
   std::vector<geometry_msgs::PoseStamped> transformed_plan;
   int goal_idx;
-  geometry_msgs::TransformStamped tf_plan_to_global;
+  tf::StampedTransform tf_plan_to_global;
   if (!transformGlobalPlan(*tf_, global_plan_, robot_pose, *costmap_, global_frame_, cfg_.trajectory.max_global_plan_lookahead_dist, 
                            transformed_plan, &goal_idx, &tf_plan_to_global))
   {
@@ -251,19 +241,15 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     return false;
   }
 
-  // update via-points container
-  if (!custom_via_points_active_)
-    updateViaPointsContainer(transformed_plan, cfg_.trajectory.global_plan_viapoint_sep);
-
   // check if global goal is reached
-  geometry_msgs::PoseStamped global_goal;
-  tf2::doTransform(global_plan_.back(), global_goal, tf_plan_to_global);
-  double dx = global_goal.pose.position.x - robot_pose_.x();
-  double dy = global_goal.pose.position.y - robot_pose_.y();
-  double delta_orient = g2o::normalize_theta( tf2::getYaw(global_goal.pose.orientation) - robot_pose_.theta() );
+  tf::Stamped<tf::Pose> global_goal;
+  tf::poseStampedMsgToTF(global_plan_.back(), global_goal);
+  global_goal.setData( tf_plan_to_global * global_goal );
+  double dx = global_goal.getOrigin().getX() - robot_pose_.x();
+  double dy = global_goal.getOrigin().getY() - robot_pose_.y();
+  double delta_orient = g2o::normalize_theta( tf::getYaw(global_goal.getRotation()) - robot_pose_.theta() );
   if(fabs(std::sqrt(dx*dx+dy*dy)) < cfg_.goal_tolerance.xy_goal_tolerance
-    && fabs(delta_orient) < cfg_.goal_tolerance.yaw_goal_tolerance
-    && (!cfg_.goal_tolerance.complete_global_plan || via_points_.size() == 0))
+    && fabs(delta_orient) < cfg_.goal_tolerance.yaw_goal_tolerance)
   {
     goal_reached_ = true;
     return true;
@@ -282,20 +268,19 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   }
               
   // Get current goal point (last point of the transformed plan)
-  robot_goal_.x() = transformed_plan.back().pose.position.x;
-  robot_goal_.y() = transformed_plan.back().pose.position.y;
-  // Overwrite goal orientation if needed
+  tf::Stamped<tf::Pose> goal_point;
+  tf::poseStampedMsgToTF(transformed_plan.back(), goal_point);
+  robot_goal_.x() = goal_point.getOrigin().getX();
+  robot_goal_.y() = goal_point.getOrigin().getY();      
   if (cfg_.trajectory.global_plan_overwrite_orientation)
   {
-    robot_goal_.theta() = estimateLocalGoalOrientation(global_plan_, transformed_plan.back(), goal_idx, tf_plan_to_global);
+    robot_goal_.theta() = estimateLocalGoalOrientation(global_plan_, goal_point, goal_idx, tf_plan_to_global);
     // overwrite/update goal orientation of the transformed plan with the actual goal (enable using the plan as initialization)
-    tf2::Quaternion q;
-    q.setRPY(0, 0, robot_goal_.theta());
-    tf2::convert(q, transformed_plan.back().pose.orientation);
+    transformed_plan.back().pose.orientation = tf::createQuaternionMsgFromYaw(robot_goal_.theta());
   }  
   else
   {
-    robot_goal_.theta() = tf2::getYaw(transformed_plan.back().pose.orientation);
+    robot_goal_.theta() = tf::getYaw(goal_point.getRotation());
   }
 
   // overwrite/update start of the transformed plan with the actual robot position (allows using the plan as initial trajectory)
@@ -303,7 +288,7 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   {
     transformed_plan.insert(transformed_plan.begin(), geometry_msgs::PoseStamped()); // insert start (not yet initialized)
   }
-  transformed_plan.front() = robot_pose; // update start
+  tf::poseTFToMsg(robot_pose, transformed_plan.front().pose); // update start;
     
   // clear currently existing obstacles
   obstacles_.clear();
@@ -317,6 +302,8 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   // also consider custom obstacles (must be called after other updates, since the container is not cleared)
   updateObstacleContainerWithCustomObstacles();
   
+  // update via-points container
+  updateViaPointsContainer(transformed_plan, cfg_.trajectory.global_plan_viapoint_sep);
     
   // Do not allow config changes during the following optimization step
   boost::mutex::scoped_lock cfg_lock(cfg_.configMutex());
@@ -331,18 +318,10 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     
     ++no_infeasible_plans_; // increase number of infeasible solutions in a row
     time_last_infeasible_plan_ = ros::Time::now();
-    last_cmd_ = cmd_vel;
     return false;
   }
          
   // Check feasibility (but within the first few states only)
-  if(cfg_.robot.is_footprint_dynamic)
-  {
-    // Update footprint of the robot and minimum and maximum distance from the center of the robot to its footprint vertices.
-    footprint_spec_ = costmap_ros_->getRobotFootprint();
-    costmap_2d::calculateMinAndMaxDistances(footprint_spec_, robot_inscribed_radius_, robot_circumscribed_radius);
-  }
-
   bool feasible = planner_->isTrajectoryFeasible(costmap_model_.get(), footprint_spec_, robot_inscribed_radius_, robot_circumscribed_radius, cfg_.trajectory.feasibility_check_no_poses);
   if (!feasible)
   {
@@ -356,7 +335,6 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     
     ++no_infeasible_plans_; // increase number of infeasible solutions in a row
     time_last_infeasible_plan_ = ros::Time::now();
-    last_cmd_ = cmd_vel;
     return false;
   }
 
@@ -367,7 +345,6 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     ROS_WARN("TebLocalPlannerROS: velocity command invalid. Resetting planner...");
     ++no_infeasible_plans_; // increase number of infeasible solutions in a row
     time_last_infeasible_plan_ = ros::Time::now();
-    last_cmd_ = cmd_vel;
     return false;
   }
   
@@ -384,7 +361,6 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     if (!std::isfinite(cmd_vel.angular.z))
     {
       cmd_vel.linear.x = cmd_vel.linear.y = cmd_vel.angular.z = 0;
-      last_cmd_ = cmd_vel;
       planner_->clearPlanner();
       ROS_WARN("TebLocalPlannerROS: Resulting steering angle is not finite. Resetting planner...");
       ++no_infeasible_plans_; // increase number of infeasible solutions in a row
@@ -395,9 +371,6 @@ bool TebLocalPlannerROS::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
   
   // a feasible solution should be found, reset counter
   no_infeasible_plans_ = 0;
-  
-  // store last command (for recovery analysis etc.)
-  last_cmd_ = cmd_vel;
   
   // Now visualize everything    
   planner_->visualize();
@@ -455,42 +428,31 @@ void TebLocalPlannerROS::updateObstacleContainerWithCostmapConverter()
     return;
     
   //Get obstacles from costmap converter
-  costmap_converter::ObstacleArrayConstPtr obstacles = costmap_converter_->getObstacles();
-  if (!obstacles)
+  costmap_converter::PolygonContainerConstPtr polygons =  costmap_converter_->getPolygons();
+  if (!polygons)
     return;
-
-  for (std::size_t i=0; i<obstacles->obstacles.size(); ++i)
+  
+  for (std::size_t i=0; i<polygons->size(); ++i)
   {
-    const costmap_converter::ObstacleMsg* obstacle = &obstacles->obstacles.at(i);
-    const geometry_msgs::Polygon* polygon = &obstacle->polygon;
-
-    if (polygon->points.size()==1 && obstacle->radius > 0) // Circle
+    if (polygons->at(i).points.size()==1) // Point
     {
-      obstacles_.push_back(ObstaclePtr(new CircularObstacle(polygon->points[0].x, polygon->points[0].y, obstacle->radius)));
+      obstacles_.push_back(ObstaclePtr(new PointObstacle(polygons->at(i).points[0].x, polygons->at(i).points[0].y)));
     }
-    else if (polygon->points.size()==1) // Point
+    else if (polygons->at(i).points.size()==2) // Line
     {
-      obstacles_.push_back(ObstaclePtr(new PointObstacle(polygon->points[0].x, polygon->points[0].y)));
+      obstacles_.push_back(ObstaclePtr(new LineObstacle(polygons->at(i).points[0].x, polygons->at(i).points[0].y,
+                                                        polygons->at(i).points[1].x, polygons->at(i).points[1].y )));
     }
-    else if (polygon->points.size()==2) // Line
-    {
-      obstacles_.push_back(ObstaclePtr(new LineObstacle(polygon->points[0].x, polygon->points[0].y,
-                                                        polygon->points[1].x, polygon->points[1].y )));
-    }
-    else if (polygon->points.size()>2) // Real polygon
+    else if (polygons->at(i).points.size()>2) // Real polygon
     {
         PolygonObstacle* polyobst = new PolygonObstacle;
-        for (std::size_t j=0; j<polygon->points.size(); ++j)
+        for (std::size_t j=0; j<polygons->at(i).points.size(); ++j)
         {
-            polyobst->pushBackVertex(polygon->points[j].x, polygon->points[j].y);
+            polyobst->pushBackVertex(polygons->at(i).points[j].x, polygons->at(i).points[j].y);
         }
         polyobst->finalizePolygon();
         obstacles_.push_back(ObstaclePtr(polyobst));
     }
-
-    // Set velocity, if obstacle is moving
-    if(!obstacles_.empty())
-      obstacles_.back()->setCentroidVelocity(obstacles->obstacles[i].velocities, obstacles->obstacles[i].orientation);
   }
 }
 
@@ -499,17 +461,21 @@ void TebLocalPlannerROS::updateObstacleContainerWithCustomObstacles()
 {
   // Add custom obstacles obtained via message
   boost::mutex::scoped_lock l(custom_obst_mutex_);
-
+  
   if (!custom_obstacle_msg_.obstacles.empty())
   {
     // We only use the global header to specify the obstacle coordinate system instead of individual ones
     Eigen::Affine3d obstacle_to_map_eig;
     try 
     {
-      geometry_msgs::TransformStamped obstacle_to_map =  tf_->lookupTransform(global_frame_, ros::Time(0),
-                                                                              custom_obstacle_msg_.header.frame_id, ros::Time(0),
-                                                                              custom_obstacle_msg_.header.frame_id, ros::Duration(0.5));
-      obstacle_to_map_eig = tf2::transformToEigen(obstacle_to_map);
+      tf::StampedTransform obstacle_to_map;
+      tf_->waitForTransform(global_frame_, ros::Time(0),
+            custom_obstacle_msg_.header.frame_id, ros::Time(0),
+            custom_obstacle_msg_.header.frame_id, ros::Duration(0.5));
+      tf_->lookupTransform(global_frame_, ros::Time(0),
+          custom_obstacle_msg_.header.frame_id, ros::Time(0), 
+          custom_obstacle_msg_.header.frame_id, obstacle_to_map);
+      tf::transformTFToEigen(obstacle_to_map, obstacle_to_map_eig);
     }
     catch (tf::TransformException ex)
     {
@@ -517,55 +483,30 @@ void TebLocalPlannerROS::updateObstacleContainerWithCustomObstacles()
       obstacle_to_map_eig.setIdentity();
     }
     
-    for (size_t i=0; i<custom_obstacle_msg_.obstacles.size(); ++i)
+    for (std::vector<geometry_msgs::PolygonStamped>::const_iterator obst_it = custom_obstacle_msg_.obstacles.begin(); obst_it != custom_obstacle_msg_.obstacles.end(); ++obst_it)
     {
-      if (custom_obstacle_msg_.obstacles.at(i).polygon.points.size() == 1 && custom_obstacle_msg_.obstacles.at(i).radius > 0 ) // circle
+      if (obst_it->polygon.points.size() == 1 ) // point
       {
-        Eigen::Vector3d pos( custom_obstacle_msg_.obstacles.at(i).polygon.points.front().x,
-                             custom_obstacle_msg_.obstacles.at(i).polygon.points.front().y,
-                             custom_obstacle_msg_.obstacles.at(i).polygon.points.front().z );
-        obstacles_.push_back(ObstaclePtr(new CircularObstacle( (obstacle_to_map_eig * pos).head(2), custom_obstacle_msg_.obstacles.at(i).radius)));
-      }
-      else if (custom_obstacle_msg_.obstacles.at(i).polygon.points.size() == 1 ) // point
-      {
-        Eigen::Vector3d pos( custom_obstacle_msg_.obstacles.at(i).polygon.points.front().x,
-                             custom_obstacle_msg_.obstacles.at(i).polygon.points.front().y,
-                             custom_obstacle_msg_.obstacles.at(i).polygon.points.front().z );
+        Eigen::Vector3d pos( obst_it->polygon.points.front().x, obst_it->polygon.points.front().y, obst_it->polygon.points.front().z );
         obstacles_.push_back(ObstaclePtr(new PointObstacle( (obstacle_to_map_eig * pos).head(2) )));
       }
-      else if (custom_obstacle_msg_.obstacles.at(i).polygon.points.size() == 2 ) // line
+      else if (obst_it->polygon.points.size() == 2 ) // line
       {
-        Eigen::Vector3d line_start( custom_obstacle_msg_.obstacles.at(i).polygon.points.front().x,
-                                    custom_obstacle_msg_.obstacles.at(i).polygon.points.front().y,
-                                    custom_obstacle_msg_.obstacles.at(i).polygon.points.front().z );
-        Eigen::Vector3d line_end( custom_obstacle_msg_.obstacles.at(i).polygon.points.back().x,
-                                  custom_obstacle_msg_.obstacles.at(i).polygon.points.back().y,
-                                  custom_obstacle_msg_.obstacles.at(i).polygon.points.back().z );
-        obstacles_.push_back(ObstaclePtr(new LineObstacle( (obstacle_to_map_eig * line_start).head(2),
-                                                           (obstacle_to_map_eig * line_end).head(2) )));
-      }
-      else if (custom_obstacle_msg_.obstacles.at(i).polygon.points.empty())
-      {
-        ROS_WARN("Invalid custom obstacle received. List of polygon vertices is empty. Skipping...");
-        continue;
+        Eigen::Vector3d line_start( obst_it->polygon.points.front().x, obst_it->polygon.points.front().y, obst_it->polygon.points.front().z );
+        Eigen::Vector3d line_end( obst_it->polygon.points.back().x, obst_it->polygon.points.back().y, obst_it->polygon.points.back().z );
+        obstacles_.push_back(ObstaclePtr(new LineObstacle( (obstacle_to_map_eig * line_start).head(2), (obstacle_to_map_eig * line_end).head(2) )));
       }
       else // polygon
       {
         PolygonObstacle* polyobst = new PolygonObstacle;
-        for (size_t j=0; j<custom_obstacle_msg_.obstacles.at(i).polygon.points.size(); ++j)
+        for (int i=0; i<(int)obst_it->polygon.points.size(); ++i)
         {
-          Eigen::Vector3d pos( custom_obstacle_msg_.obstacles.at(i).polygon.points[j].x,
-                               custom_obstacle_msg_.obstacles.at(i).polygon.points[j].y,
-                               custom_obstacle_msg_.obstacles.at(i).polygon.points[j].z );
+          Eigen::Vector3d pos( obst_it->polygon.points[i].x, obst_it->polygon.points[i].y, obst_it->polygon.points[i].z );
           polyobst->pushBackVertex( (obstacle_to_map_eig * pos).head(2) );
         }
         polyobst->finalizePolygon();
         obstacles_.push_back(ObstaclePtr(polyobst));
       }
-
-      // Set velocity, if obstacle is moving
-      if(!obstacles_.empty())
-        obstacles_.back()->setCentroidVelocity(custom_obstacle_msg_.obstacles[i].velocities, custom_obstacle_msg_.obstacles[i].orientation);
     }
   }
 }
@@ -574,7 +515,7 @@ void TebLocalPlannerROS::updateViaPointsContainer(const std::vector<geometry_msg
 {
   via_points_.clear();
   
-  if (min_separation<=0)
+  if (min_separation<0)
     return;
   
   std::size_t prev_idx = 0;
@@ -600,7 +541,7 @@ Eigen::Vector2d TebLocalPlannerROS::tfPoseToEigenVector2dTransRot(const tf::Pose
 }
       
       
-bool TebLocalPlannerROS::pruneGlobalPlan(const tf2_ros::Buffer& tf, const geometry_msgs::PoseStamped& global_pose, std::vector<geometry_msgs::PoseStamped>& global_plan, double dist_behind_robot)
+bool TebLocalPlannerROS::pruneGlobalPlan(const tf::TransformListener& tf, const tf::Stamped<tf::Pose>& global_pose, std::vector<geometry_msgs::PoseStamped>& global_plan, double dist_behind_robot)
 {
   if (global_plan.empty())
     return true;
@@ -608,9 +549,10 @@ bool TebLocalPlannerROS::pruneGlobalPlan(const tf2_ros::Buffer& tf, const geomet
   try
   {
     // transform robot pose into the plan frame (we do not wait here, since pruning not crucial, if missed a few times)
-    geometry_msgs::TransformStamped global_to_plan_transform = tf.lookupTransform(global_plan.front().header.frame_id, global_pose.header.frame_id, ros::Time(0));
-    geometry_msgs::PoseStamped robot;
-    tf2::doTransform(global_pose, robot, global_to_plan_transform);
+    tf::StampedTransform global_to_plan_transform;
+    tf.lookupTransform(global_plan.front().header.frame_id, global_pose.frame_id_, ros::Time(0), global_to_plan_transform);
+    tf::Stamped<tf::Pose> robot;
+    robot.setData( global_to_plan_transform * global_pose );
     
     double dist_thresh_sq = dist_behind_robot*dist_behind_robot;
     
@@ -619,8 +561,8 @@ bool TebLocalPlannerROS::pruneGlobalPlan(const tf2_ros::Buffer& tf, const geomet
     std::vector<geometry_msgs::PoseStamped>::iterator erase_end = it;
     while (it != global_plan.end())
     {
-      double dx = robot.pose.position.x - it->pose.position.x;
-      double dy = robot.pose.position.y - it->pose.position.y;
+      double dx = robot.getOrigin().x() - it->pose.position.x;
+      double dy = robot.getOrigin().y() - it->pose.position.y;
       double dist_sq = dx * dx + dy * dy;
       if (dist_sq < dist_thresh_sq)
       {
@@ -644,9 +586,9 @@ bool TebLocalPlannerROS::pruneGlobalPlan(const tf2_ros::Buffer& tf, const geomet
 }
       
 
-bool TebLocalPlannerROS::transformGlobalPlan(const tf2_ros::Buffer& tf, const std::vector<geometry_msgs::PoseStamped>& global_plan,
-                  const geometry_msgs::PoseStamped& global_pose, const costmap_2d::Costmap2D& costmap, const std::string& global_frame, double max_plan_length,
-                  std::vector<geometry_msgs::PoseStamped>& transformed_plan, int* current_goal_idx, geometry_msgs::TransformStamped* tf_plan_to_global) const
+bool TebLocalPlannerROS::transformGlobalPlan(const tf::TransformListener& tf, const std::vector<geometry_msgs::PoseStamped>& global_plan,
+                  const tf::Stamped<tf::Pose>& global_pose, const costmap_2d::Costmap2D& costmap, const std::string& global_frame, double max_plan_length,
+                  std::vector<geometry_msgs::PoseStamped>& transformed_plan, int* current_goal_idx, tf::StampedTransform* tf_plan_to_global) const
 {
   // this method is a slightly modified version of base_local_planner/goal_functions.h
 
@@ -664,12 +606,17 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf2_ros::Buffer& tf, const st
     }
 
     // get plan_to_global_transform from plan frame to global_frame
-    geometry_msgs::TransformStamped plan_to_global_transform = tf.lookupTransform(global_frame, ros::Time(), plan_pose.header.frame_id, plan_pose.header.stamp,
-                                                                                  plan_pose.header.frame_id, ros::Duration(0.5));
+    tf::StampedTransform plan_to_global_transform;
+    tf.waitForTransform(global_frame, ros::Time::now(),
+    plan_pose.header.frame_id, plan_pose.header.stamp,
+    plan_pose.header.frame_id, ros::Duration(0.5));
+    tf.lookupTransform(global_frame, ros::Time(),
+    plan_pose.header.frame_id, plan_pose.header.stamp, 
+    plan_pose.header.frame_id, plan_to_global_transform);
 
     //let's get the pose of the robot in the frame of the plan
-    geometry_msgs::PoseStamped robot_pose;
-    tf.transform(global_pose, robot_pose, plan_pose.header.frame_id);
+    tf::Stamped<tf::Pose> robot_pose;
+    tf.transformPose(plan_pose.header.frame_id, global_pose, robot_pose);
 
     //we'll discard points on the plan that are outside the local costmap
     double dist_threshold = std::max(costmap.getSizeInCellsX() * costmap.getResolution() / 2.0,
@@ -683,21 +630,21 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf2_ros::Buffer& tf, const st
     double sq_dist = 1e10;
     
     //we need to loop to a point on the plan that is within a certain distance of the robot
-    for(int j=0; j < (int)global_plan.size(); ++j)
+    while(i < (int)global_plan.size())
     {
-      double x_diff = robot_pose.pose.position.x - global_plan[j].pose.position.x;
-      double y_diff = robot_pose.pose.position.y - global_plan[j].pose.position.y;
+      double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
+      double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
       double new_sq_dist = x_diff * x_diff + y_diff * y_diff;
-      if (new_sq_dist > sq_dist_threshold)
-        break;  // force stop if we have reached the costmap border
-
-      if (new_sq_dist < sq_dist) // find closest distance
+      if (new_sq_dist > sq_dist && sq_dist < sq_dist_threshold) // find first distance that is greater
       {
         sq_dist = new_sq_dist;
-        i = j;
+        break;
       }
+      sq_dist = new_sq_dist;
+      ++i;
     }
     
+    tf::Stamped<tf::Pose> tf_pose;
     geometry_msgs::PoseStamped newer_pose;
     
     double plan_length = 0; // check cumulative Euclidean distance along the plan
@@ -706,12 +653,16 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf2_ros::Buffer& tf, const st
     while(i < (int)global_plan.size() && sq_dist <= sq_dist_threshold && (max_plan_length<=0 || plan_length <= max_plan_length))
     {
       const geometry_msgs::PoseStamped& pose = global_plan[i];
-      tf2::doTransform(pose, newer_pose, plan_to_global_transform);
+      tf::poseStampedMsgToTF(pose, tf_pose);
+      tf_pose.setData(plan_to_global_transform * tf_pose);
+      tf_pose.stamp_ = plan_to_global_transform.stamp_;
+      tf_pose.frame_id_ = global_frame;
+      tf::poseStampedTFToMsg(tf_pose, newer_pose);
 
       transformed_plan.push_back(newer_pose);
 
-      double x_diff = robot_pose.pose.position.x - global_plan[i].pose.position.x;
-      double y_diff = robot_pose.pose.position.y - global_plan[i].pose.position.y;
+      double x_diff = robot_pose.getOrigin().x() - global_plan[i].pose.position.x;
+      double y_diff = robot_pose.getOrigin().y() - global_plan[i].pose.position.y;
       sq_dist = x_diff * x_diff + y_diff * y_diff;
       
       // caclulate distance to previous pose
@@ -725,7 +676,11 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf2_ros::Buffer& tf, const st
     // the resulting transformed plan can be empty. In that case we explicitly inject the global goal.
     if (transformed_plan.empty())
     {
-      tf2::doTransform(global_plan.back(), newer_pose, plan_to_global_transform);
+      tf::poseStampedMsgToTF(global_plan.back(), tf_pose);
+      tf_pose.setData(plan_to_global_transform * tf_pose);
+      tf_pose.stamp_ = plan_to_global_transform.stamp_;
+      tf_pose.frame_id_ = global_frame;
+      tf::poseStampedTFToMsg(tf_pose, newer_pose);
 
       transformed_plan.push_back(newer_pose);
       
@@ -766,8 +721,8 @@ bool TebLocalPlannerROS::transformGlobalPlan(const tf2_ros::Buffer& tf, const st
     
       
       
-double TebLocalPlannerROS::estimateLocalGoalOrientation(const std::vector<geometry_msgs::PoseStamped>& global_plan, const geometry_msgs::PoseStamped& local_goal,
-              int current_goal_idx, const geometry_msgs::TransformStamped& tf_plan_to_global, int moving_average_length) const
+double TebLocalPlannerROS::estimateLocalGoalOrientation(const std::vector<geometry_msgs::PoseStamped>& global_plan, const tf::Stamped<tf::Pose>& local_goal,
+			        int current_goal_idx, const tf::StampedTransform& tf_plan_to_global, int moving_average_length) const
 {
   int n = (int)global_plan.size();
   
@@ -776,16 +731,13 @@ double TebLocalPlannerROS::estimateLocalGoalOrientation(const std::vector<geomet
   {
     if (current_goal_idx >= n-1) // we've exactly reached the goal
     {
-      return tf2::getYaw(local_goal.pose.orientation);
+      return tf::getYaw(local_goal.getRotation());
     }
     else
     {
-      tf2::Quaternion global_orientation;
-      tf2::convert(global_plan.back().pose.orientation, global_orientation);
-      tf2::Quaternion rotation;
-      tf2::convert(tf_plan_to_global.transform.rotation, rotation);
-      // TODO(roesmann): avoid conversion to tf2::Quaternion
-      return tf2::getYaw(rotation *  global_orientation);
+      tf::Quaternion global_orientation;
+      tf::quaternionMsgToTF(global_plan.back().pose.orientation, global_orientation);
+      return  tf::getYaw(tf_plan_to_global.getRotation() *  global_orientation );
     }     
   }
   
@@ -793,18 +745,20 @@ double TebLocalPlannerROS::estimateLocalGoalOrientation(const std::vector<geomet
   moving_average_length = std::min(moving_average_length, n-current_goal_idx-1 ); // maybe redundant, since we have checked the vicinity of the goal before
   
   std::vector<double> candidates;
-  geometry_msgs::PoseStamped tf_pose_k = local_goal;
-  geometry_msgs::PoseStamped tf_pose_kp1;
+  tf::Stamped<tf::Pose> tf_pose_k = local_goal;
+  tf::Stamped<tf::Pose> tf_pose_kp1;
   
   int range_end = current_goal_idx + moving_average_length;
   for (int i = current_goal_idx; i < range_end; ++i)
   {
     // Transform pose of the global plan to the planning frame
-    tf2::doTransform(global_plan.at(i+1), tf_pose_kp1, tf_plan_to_global);
-
+    const geometry_msgs::PoseStamped& pose = global_plan.at(i+1);
+    tf::poseStampedMsgToTF(pose, tf_pose_kp1);
+    tf_pose_kp1.setData(tf_plan_to_global * tf_pose_kp1);
+      
     // calculate yaw angle  
-    candidates.push_back( std::atan2(tf_pose_kp1.pose.position.y - tf_pose_k.pose.position.y,
-        tf_pose_kp1.pose.position.x - tf_pose_k.pose.position.x ) );
+    candidates.push_back( std::atan2(tf_pose_kp1.getOrigin().getY() - tf_pose_k.getOrigin().getY(),
+			  tf_pose_kp1.getOrigin().getX() - tf_pose_k.getOrigin().getX() ) );
     
     if (i<range_end-1) 
       tf_pose_k = tf_pose_kp1;
@@ -870,11 +824,11 @@ void TebLocalPlannerROS::configureBackupModes(std::vector<geometry_msgs::PoseSta
     ros::Time current_time = ros::Time::now();
     
     // reduced horizon backup mode
-    if (cfg_.recovery.shrink_horizon_backup && 
+    if (cfg_.trajectory.shrink_horizon_backup && 
         goal_idx < (int)transformed_plan.size()-1 && // we do not reduce if the goal is already selected (because the orientation might change -> can introduce oscillations)
-       (no_infeasible_plans_>0 || (current_time - time_last_infeasible_plan_).toSec() < cfg_.recovery.shrink_horizon_min_duration )) // keep short horizon for at least a few seconds
+       (no_infeasible_plans_>0 || (current_time - time_last_infeasible_plan_).toSec() < cfg_.trajectory.shrink_horizon_min_duration )) // keep short horizon for at least a few seconds
     {
-        ROS_INFO_COND(no_infeasible_plans_==1, "Activating reduced horizon backup mode for at least %.2f sec (infeasible trajectory detected).", cfg_.recovery.shrink_horizon_min_duration);
+        ROS_INFO_COND(no_infeasible_plans_==1, "Activating reduced horizon backup mode for at least %.2f sec (infeasible trajectory detected).", cfg_.trajectory.shrink_horizon_min_duration);
 
 
         // Shorten horizon if requested
@@ -897,73 +851,14 @@ void TebLocalPlannerROS::configureBackupModes(std::vector<geometry_msgs::PoseSta
         else
             goal_idx += horizon_reduction; // this should not happen, but safety first ;-) 
     }
-    
-    
-    // detect and resolve oscillations
-    if (cfg_.recovery.oscillation_recovery)
-    {
-        double max_vel_theta;
-        double max_vel_current = last_cmd_.linear.x >= 0 ? cfg_.robot.max_vel_x : cfg_.robot.max_vel_x_backwards;
-        if (cfg_.robot.min_turning_radius!=0 && max_vel_current>0)
-            max_vel_theta = std::max( max_vel_current/std::abs(cfg_.robot.min_turning_radius),  cfg_.robot.max_vel_theta );
-        else
-            max_vel_theta = cfg_.robot.max_vel_theta;
-        
-        failure_detector_.update(last_cmd_, cfg_.robot.max_vel_x, cfg_.robot.max_vel_x_backwards, max_vel_theta,
-                               cfg_.recovery.oscillation_v_eps, cfg_.recovery.oscillation_omega_eps);
-        
-        bool oscillating = failure_detector_.isOscillating();
-        bool recently_oscillated = (ros::Time::now()-time_last_oscillation_).toSec() < cfg_.recovery.oscillation_recovery_min_duration; // check if we have already detected an oscillation recently
-        
-        if (oscillating)
-        {
-            if (!recently_oscillated)
-            {
-                // save current turning direction
-                if (robot_vel_.angular.z > 0)
-                    last_preferred_rotdir_ = RotType::left;
-                else
-                    last_preferred_rotdir_ = RotType::right;
-                ROS_WARN("TebLocalPlannerROS: possible oscillation (of the robot or its local plan) detected. Activating recovery strategy (prefer current turning direction during optimization).");
-            }
-            time_last_oscillation_ = ros::Time::now();  
-            planner_->setPreferredTurningDir(last_preferred_rotdir_);
-        }
-        else if (!recently_oscillated && last_preferred_rotdir_ != RotType::none) // clear recovery behavior
-        {
-            last_preferred_rotdir_ = RotType::none;
-            planner_->setPreferredTurningDir(last_preferred_rotdir_);
-            ROS_INFO("TebLocalPlannerROS: oscillation recovery disabled/expired.");
-        }
-    }
 
 }
      
      
-void TebLocalPlannerROS::customObstacleCB(const costmap_converter::ObstacleArrayMsg::ConstPtr& obst_msg)
+void TebLocalPlannerROS::customObstacleCB(const teb_local_planner::ObstacleMsg::ConstPtr& obst_msg)
 {
   boost::mutex::scoped_lock l(custom_obst_mutex_);
   custom_obstacle_msg_ = *obst_msg;  
-}
-
-void TebLocalPlannerROS::customViaPointsCB(const nav_msgs::Path::ConstPtr& via_points_msg)
-{
-  ROS_INFO_ONCE("Via-points received. This message is printed once.");
-  if (cfg_.trajectory.global_plan_viapoint_sep > 0)
-  {
-    ROS_WARN("Via-points are already obtained from the global plan (global_plan_viapoint_sep>0)."
-             "Ignoring custom via-points.");
-    custom_via_points_active_ = false;
-    return;
-  }
-
-  boost::mutex::scoped_lock l(via_point_mutex_);
-  via_points_.clear();
-  for (const geometry_msgs::PoseStamped& pose : via_points_msg->poses)
-  {
-    via_points_.emplace_back(pose.pose.position.x, pose.pose.position.y);
-  }
-  custom_via_points_active_ = !via_points_.empty();
 }
      
 RobotFootprintModelPtr TebLocalPlannerROS::getRobotFootprintFromParamServer(const ros::NodeHandle& nh)
