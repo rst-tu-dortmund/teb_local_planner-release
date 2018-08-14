@@ -2,10 +2,17 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.7.4 (2018-08-14)
+0.8.1 (2018-08-14)
 ------------------
 * bugfix in calculateHSignature. Fixes `#90 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/90>`_.
 * fixed centroid computation in a special case of polygon-obstacles
+* Contributors: Christoph Rösmann
+
+0.8.0 (2018-08-06)
+------------------
+* First melodic release
+* Updated to new g2o API
+* Migration to tf2
 * Contributors: Christoph Rösmann
 
 0.7.3 (2018-07-05)
