@@ -2,81 +2,181 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.4.5 (2018-08-14)
-------------------
-* bugfix in calculateHSignature. Fixes `#90 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/90>`_.
+0.6.11 (2018-08-14)
+-------------------
+* bugfix in calculateHSignature. Fixes #90.
 * fixed centroid computation in a special case of polygon-obstacles
 * Contributors: Christoph Rösmann
 
-0.4.4 (2016-12-23)
+0.6.10 (2018-07-05)
+-------------------
+* Parameter `switching_blocking_period` added to homotopy class planner parameter group.
+  Values greater than zero enforce the homotopy class planner to only switch to new equivalence classes as soon
+  as the given period is expired (this might reduce oscillations in some scenarios). The value is set to zero seconds
+  by default in order to not change the behavior of existing configurations.
+* Fixed unconsistent naming of parameter `global_plan_viapoint_sep`.
+  The parameter retrieved at startup was `global_plan_via_point_sep` and via dynamic_reconfigure it was `global_plan_viapoint_sep`.
+  `global_plan_via_point_sep` has now been replaced by `global_plan_viapoint_sep` since this is more consistent with the variable name
+  in the code as well as `weight_viapoint` and the ros wiki description.
+  In order to not break things, the old parameter name can still be used. However, a deprecated warning is printed.
+* transformGlobalPlan searches now for the closest point within the complete subset of the global plan in the local costmap:
+  In every sampling interval, the global plan is processed in order to find the closest pose to the robot (as reference start) 
+  and the current end pose (either local at costmap boundary or max_global_plan_lookahead_dist).
+  Previously, the search algorithm stopped as soon as the distance to the robot increased once. 
+  This caused troubles with more complex global plans, hence the new strategy checks the complete subset
+  of the global plan in the local costmap for the closest distance to the robot.
+* via-points that are very close to the current robot pose or behind the robot are now skipped (in non-ordered mode)
+* Edge creation: minor performance improvement for dynamic obstacle edges
+* dynamic_reconfigure: parameter visualize_with_time_as_z_axis_scale moved to group trajectory
+* Contributors: Christoph Rösmann
+
+0.6.9 (2018-06-08)
 ------------------
-* Indigo - Kinetic Synchronization: stable features and changes of kinetic (0.6.5/0.6.6) are now available in indigo, e.g.
-  * Support for omnidirectional drives
-  * Changed inner velocity storage object to geometry_msgs::Twist to also account for the strafing velocity (and later acceleration). This change caused some function prototype modifications.
-  * Limiting y-acceleration (strafing acceleration) is now supported if holonomic mode is enabled (vel_max_y > 0)
-  * Increased bounds of many variables in dynamic_reconfigure. Resolves #14.
-  * HomotopyClassPlanner public interface extended
-  * Removed TebConfig dependency in TebVisualization
-  * Added intermediate edge layer for unary, binary and multi edges in order to reduce code redundancy.
-  * Added an option to compute the actual arc length
-  instead of using the Euclidean distance approximation.
-  The actual arc length is then used for computing velocities, accelerations
-  and the turning radius.
-  * New default obstacle association strategy.
+* Adds the possibility to provide via-points via a topic. 
+  Currently, the user needs to decide whether to receive via-points from topic or to obtain them from the global reference plan 
+  (e.g., activate the latter by setting global_plan_viapoint_sep>0 as before).
+  A small test script publish_viapoints.py is provided to demonstrate the feature within test_optim_node.
+* Contributors: Christoph Rösmann
+
+0.6.8 (2018-06-05)
+------------------
+* Fixed a crucial bug (from 0.6.6): A cost function for prefering a clockwise resp. anti-clockwise turn was enabled by default.
+  This cost function was only intended to be active only for recovering from an oscillating robot. 
+  This cost led to a penalty for one of the turning directions and hence the maximum turning rate for the penalized direction could not be reached.
+  Furthermore, which is more crucial: since the penalty applied only to a small (initial) subset of the trajectory, the overall control performance was poor
+  (huge gap between planned motion and closed-loop trajectories led to frequent corrections of the robot pose and hence many motion reversals).
+* Adds support for circular obstacle types. This includes support for the radius field in costmap_converter::ObstacleMsg
+* rqt reconfigure: parameters are now grouped in tabs (robot, trajectory, viapoints, ...)
+* Update to use non deprecated pluginlib macro
+* Python scripts updated to new obstacle message definition.
+* Fixed issue when start and end are at the same location (PR #43)
+* Normalize marker quaternions in *test_optim_node*
+* Contributors: Christoph Rösmann, Alexander Reimann, Mikael Arguedas, wollip
+
+0.6.7 (2017-09-21)
+------------------
+* This update introduces support for dynamic obstacles (thanks to Franz Albers, who implemented and tested the code).
+  Dynamic obstacle support requires parameter *include\_dynamic\_obstacles* to be activated.
+  Note, this feature is still experimental and subject to testing.
+  Motion prediction is performed using a constant velocity model.
+  Dynamic obstacles might be incorporated as follows:
+  * via a custom message provided on topic ~/obstacles (warning: we changed the message type from teb_local_planner/ObstacleMsg to costmap_converter/ObstacleArrayMsg).
+  * via the CostmapToDynamicObstacles plugin as part of the costmap\_converter package (still experimental).
+  A tutorial is going to be provided soon.
+* FeedbackMsg includes a ObstacleMsg instead of a polygon
+* ObstacleMsg removed from package since it is now part of the costmap\_converter package.
+* Homotopy class planer code update: graph search methods and equivalence classes (h-signatures) are now 
+  implemented as subclasses of more general interfaces.
+* TEB trajectory initialization now uses a max\_vel\_x argument instead of the desired time difference in order to give the optimizer a better warm start. 
+  Old methods are marked as deprecated. This change does not affect users settings.
+* Inplace rotations removed from trajectory initialization to improve convergence speed of the optimizer
+* teb\_local\_planner::ObstacleMsg removed in favor of costmap\_converter::ObstacleArrayMsg. This also requires custom obstacle publishers to update to the new format
+* the "new" trajectory resizing method is only activated, if "include_dynamic_obstacles" is set to true.
+  We introduced the non-fast mode with the support of dynamic obstacles
+  (which leads to better results in terms of x-y-t homotopy planning).
+  However, we have not yet tested this mode intensively, so we keep
+  the previous mode as default until we finish our tests.
+* added parameter and code to update costmap footprint if it is dynamic (#49)
+* Contributors: Franz Albers, Christoph Rösmann, procopiostein
+
+0.6.6 (2016-12-23)
+------------------
+* Strategy for recovering from oscillating local plans added (see new parameters)
+* Horizon reduction for resolving infeasible trajectories is not activated anymore if the global goal is already selected
+  (to avoid oscillations due to changing final orientations)
+* Global plan orientations are now taken for TEB initialization if lobal_plan_overwrite_orientation==true
+* Parameter max_samples added
+* Further fixes (thanks to Matthias Füller and Daniel Neumann for providing patches)
+
+0.6.5 (2016-11-15)
+------------------
+* The trajectory is now initialized backwards for goals close to and behind the robot.
+  Parameter 'allow_init_with_backwards_motion' added.
+* Updated the TEB selection in the HomotopyClassPlanner.
+  * A new parameter is introduced to prefer the equivalence class of the initial plan
+  * Fixed some bugs related to the deletion of candidates and for keeping the equivalence class of the initial plan.
+* Weight adaptation added for obstacles edges.
+  Added parameter 'weight_adapt_factor'.
+  Obstacle weights are repeatedly scaled by this factor in each outer TEB iteration.
+  Increasing weights iteratively instead of setting a huge value a-priori leads to better numerical conditions.
+* Added a warning if the optim footprint + min_obstacle_dist is smaller than the costmap footprint.
+  Validation is performed by only comparing the inscribed radii of the footprints.
+* Revision/extension of the reduced-horizon backup mode which is triggered in case infeasible trajectories are detected.
+* Changed HSignature to a generic equivalence class
+* Minor changes
+
+0.6.4 (2016-10-23)
+------------------
+* New default obstacle association strategy:
   During optimization graph creation, for each pose of the trajectory a
   relevance detection is performed before considering the obstacle
   during optimization. New parameters are introduced. The
   old strategy is kept as 'legacy' strategy (see parameters).
-  * update of default parameters for 'costmap_obstacles_behind_robot_dist'
-  * Added a warning if the optim footprint + min_obstacle_dist is smaller than the costmap footprint.
-  Validation is performed by only comparing the inscribed radii of the footprints.
-  * Weight adaptation added for obstacles edges.
-  Added parameter 'weight_adapt_factor'.
-  Obstacle weights are scaled repeatedly scaled by this factor in each outer TEB iteration.
-  Increasing weights iteratively instead of setting a huge value a-priori leads to better numerical conditions.
-  * Changed HSignature to a generic equivalence class
-  * A new parameter is introduced to prefer the equivalence class of the initial plan
-  * Fixed some bugs related to the deletion of candidates and
-  for keeping the equivalence class of the initial plan.
-  * The trajectory is now initialized backwards for goals close to and behind the robot.
-  Parameter 'allow_init_with_backwards_motion' added.
-  * Horizon reduction for resolving infeasible trajectories is not activated anymore if the global goal is already selected
-  (to avoid oscillations due to changing final orientations)
-  * fixed wrong matrix assignment that caused a crash of the planner
-  * max_samples parameter added
-  * global plan orientations are now taken for TEB initialization if lobal_plan_overwrite_orientation==true
-  * Further fixes (thanks to Matthias FÜller and Daniel Neumann for providing patches)
+* Computation of velocities, acceleration and turning radii extended:
+  Added an option to compute the actual arc length
+  instead of using the Euclidean distance approximation (see parameter `exact_arc_length`.
+* Added intermediate edge layer for unary, binary and multi edges in order to reduce code redundancy.
+* Script for visualizing velocity profile updated to accept the feedback topic name via rosparam server
+* Removed TebConfig dependency in TebVisualization
+* PolygonObstacle can now be constructed using a vertices container
+* HomotopyClassPlanner public interface extended
+* Changed H-Signature computation to work 'again' with few obstacles such like 1 or 2
+* Removed inline flags in visualization.cpp
+* Removed inline flags in timed_elastic_band.cpp.
+  Fixes `#15 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/15>`_.
+* Increased bounds of many variables in dynamic_reconfigure. 
+  Resolves `#14 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/14>`_.
+  The particular variables are maximum velocities, maximum accelerations,
+  minimum turning radius,...
+  Note: optimization weights and dt_ref as well as dt_hyst are not
+  tuned for velocities and accelerations beyond
+  the default values (e.g. >1 m/s). Just increasing the maximum velocity
+  bounds without adjusting the other parameters leads to an insufficient behavior.
+* Default parameter value update: 'costmap_obstacles_behind_robot_dist'
+* Additional minor fixes.
 
-
-0.4.3 (2016-08-17)
+0.6.3 (2016-08-17)
 ------------------
 * Changed the f0 function for calculating the H-Signature.
   The new one seems to be more robust for a much larger number of obstacles
   after some testing.
 * HomotopyClassPlanner: vertex collision check removed since collisions will be determined in the edge collision check again
 * Fixed distance calculation polygon-to-polygon-obstacle
+* cmake config exports now *include directories* of external packages for dependent projects
 * Enlarged upper bounds on goal position and orientation tolerances in *dynamic_reconfigure*. Fixes #13.
 
 
-0.4.2 (2016-06-15)
+0.6.2 (2016-06-15)
 ------------------
 * Fixed bug causing the goal to disappear in case the robot arrives with non-zero orientation error.
-* Inflation mode for obstacles added (disabled by default).
+* Inflation mode for obstacles added.
 * The homotopy class of the global plan is now always forced to be initialized as trajectory.
 * The initial velocity of the robot is now taken into account correctly for
   all candidate trajectories.
 * Removed a check in which the last remaining candidate trajectory was rejected if it was close to an obstacle.
   This fix addresses issue `#7 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/7>`_
 
-0.4.1 (2016-05-20)
+0.6.1 (2016-05-23)
 ------------------
+* Debian ARM64 library path added to SuiteSparse cmake find-script (resolves ARM compilation issue)
+
+
+0.6.0 (2016-05-22)
+------------------
+* Extended support to holonomic robots
 * Wrong parameter namespace for *costmap_converter* plugins fixed
-* Compiler warnings fixed
+* Added the option to scale the length of the hcp sampling area
+* Compiler warnings fixed.
 * Workaround for compilation issues that are caused by a bug in boost 1.58
   concerning the graph library (missing move constructor/assignment operator
   in boost source).
-* Using *tf*-listener from *move_base* instead of an isolated one
-* Via-point support improved
+* Using *tf_listener* from *move_base* now.
+* Via-point support improved.
+  Added the possibility to take the actual order of via-points into account.
+  Additionally, via-points beyond start and goal are now included.
+* Obsolete include of the angles package header removed
+* Update to package.xml version 2
+* Some other minor fixes.
 
 
 0.4.0 (2016-04-19)

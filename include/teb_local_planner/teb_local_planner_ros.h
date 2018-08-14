@@ -52,6 +52,7 @@
 #include <teb_local_planner/optimal_planner.h>
 #include <teb_local_planner/homotopy_class_planner.h>
 #include <teb_local_planner/visualization.h>
+#include <teb_local_planner/recovery_behaviors.h>
 
 // message types
 #include <nav_msgs/Path.h>
@@ -59,7 +60,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <visualization_msgs/Marker.h>
-#include <teb_local_planner/ObstacleMsg.h>
+#include <costmap_converter/ObstacleMsg.h>
 
 // transforms
 #include <tf/tf.h>
@@ -230,9 +231,14 @@ protected:
     * @brief Callback for custom obstacles that are not obtained from the costmap 
     * @param obst_msg pointer to the message containing a list of polygon shaped obstacles
     */
-  void customObstacleCB(const teb_local_planner::ObstacleMsg::ConstPtr& obst_msg);
+  void customObstacleCB(const costmap_converter::ObstacleArrayMsg::ConstPtr& obst_msg);
   
-  
+   /**
+    * @brief Callback for custom via-points
+    * @param via_points_msg pointer to the message containing a list of via-points
+    */
+  void customViaPointsCB(const nav_msgs::Path::ConstPtr& via_points_msg);
+
    /**
     * @brief Prune global plan such that already passed poses are cut off
     * 
@@ -357,6 +363,7 @@ private:
   TebVisualizationPtr visualization_; //!< Instance of the visualization class (local/global plan, obstacles, ...)
   boost::shared_ptr<base_local_planner::CostmapModel> costmap_model_;  
   TebConfig cfg_; //!< Config class that stores and manages all related parameters
+  FailureDetector failure_detector_; //!< Detect if the robot got stucked
   
   std::vector<geometry_msgs::PoseStamped> global_plan_; //!< Store the current global plan
   
@@ -368,14 +375,21 @@ private:
   boost::shared_ptr< dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig> > dynamic_recfg_; //!< Dynamic reconfigure server to allow config modifications at runtime
   ros::Subscriber custom_obst_sub_; //!< Subscriber for custom obstacles received via a ObstacleMsg.
   boost::mutex custom_obst_mutex_; //!< Mutex that locks the obstacle array (multi-threaded)
-  ObstacleMsg custom_obstacle_msg_; //!< Copy of the most recent obstacle message
-  
+  costmap_converter::ObstacleArrayMsg custom_obstacle_msg_; //!< Copy of the most recent obstacle message
+
+  ros::Subscriber via_points_sub_; //!< Subscriber for custom via-points received via a Path msg.
+  bool custom_via_points_active_; //!< Keep track whether valid via-points have been received from via_points_sub_
+  boost::mutex via_point_mutex_; //!< Mutex that locks the via_points container (multi-threaded)
+
   PoseSE2 robot_pose_; //!< Store current robot pose
   PoseSE2 robot_goal_; //!< Store current robot goal
   geometry_msgs::Twist robot_vel_; //!< Store current robot translational and angular velocity (vx, vy, omega)
   bool goal_reached_; //!< store whether the goal is reached or not
   ros::Time time_last_infeasible_plan_; //!< Store at which time stamp the last infeasible plan was detected
   int no_infeasible_plans_; //!< Store how many times in a row the planner failed to find a feasible plan.
+  ros::Time time_last_oscillation_; //!< Store at which time stamp the last oscillation was detected
+  RotType last_preferred_rotdir_; //!< Store recent preferred turning direction
+  geometry_msgs::Twist last_cmd_; //!< Store the last control command generated in computeVelocityCommands()
   
   std::vector<geometry_msgs::Point> footprint_spec_; //!< Store the footprint of the robot 
   double robot_inscribed_radius_; //!< The radius of the inscribed circle of the robot (collision possible)
