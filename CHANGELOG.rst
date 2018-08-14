@@ -2,14 +2,14 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.6.11 (2018-08-14)
--------------------
-* bugfix in calculateHSignature. Fixes #90.
+0.7.4 (2018-08-14)
+------------------
+* bugfix in calculateHSignature. Fixes `#90 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/90>`_.
 * fixed centroid computation in a special case of polygon-obstacles
 * Contributors: Christoph Rösmann
 
-0.6.10 (2018-07-05)
--------------------
+0.7.3 (2018-07-05)
+------------------
 * Parameter `switching_blocking_period` added to homotopy class planner parameter group.
   Values greater than zero enforce the homotopy class planner to only switch to new equivalence classes as soon
   as the given period is expired (this might reduce oscillations in some scenarios). The value is set to zero seconds
@@ -30,7 +30,7 @@ Changelog for package teb_local_planner
 * dynamic_reconfigure: parameter visualize_with_time_as_z_axis_scale moved to group trajectory
 * Contributors: Christoph Rösmann
 
-0.6.9 (2018-06-08)
+0.7.2 (2018-06-08)
 ------------------
 * Adds the possibility to provide via-points via a topic. 
   Currently, the user needs to decide whether to receive via-points from topic or to obtain them from the global reference plan 
@@ -38,7 +38,7 @@ Changelog for package teb_local_planner
   A small test script publish_viapoints.py is provided to demonstrate the feature within test_optim_node.
 * Contributors: Christoph Rösmann
 
-0.6.8 (2018-06-05)
+0.7.1 (2018-06-05)
 ------------------
 * Fixed a crucial bug (from 0.6.6): A cost function for prefering a clockwise resp. anti-clockwise turn was enabled by default.
   This cost function was only intended to be active only for recovering from an oscillating robot. 
@@ -53,7 +53,7 @@ Changelog for package teb_local_planner
 * Normalize marker quaternions in *test_optim_node*
 * Contributors: Christoph Rösmann, Alexander Reimann, Mikael Arguedas, wollip
 
-0.6.7 (2017-09-21)
+0.7.0 (2017-09-23)
 ------------------
 * This update introduces support for dynamic obstacles (thanks to Franz Albers, who implemented and tested the code).
   Dynamic obstacle support requires parameter *include\_dynamic\_obstacles* to be activated.
