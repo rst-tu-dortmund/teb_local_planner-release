@@ -51,19 +51,20 @@
 #include <teb_local_planner/robot_footprint_model.h>
 
 // g2o lib stuff
-#include <g2o/core/sparse_optimizer.h>
-#include <g2o/core/block_solver.h>
-#include <g2o/core/factory.h>
-#include <g2o/core/optimization_algorithm_gauss_newton.h>
-#include <g2o/core/optimization_algorithm_levenberg.h>
-#include <g2o/solvers/csparse/linear_solver_csparse.h>
-#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
+#include "g2o/core/sparse_optimizer.h"
+#include "g2o/core/block_solver.h"
+#include "g2o/core/factory.h"
+#include "g2o/core/optimization_algorithm_gauss_newton.h"
+#include "g2o/core/optimization_algorithm_levenberg.h"
+#include "g2o/solvers/csparse/linear_solver_csparse.h"
+#include "g2o/solvers/cholmod/linear_solver_cholmod.h"
 
 // g2o custom edges and vertices for the TEB planner
 #include <teb_local_planner/g2o_types/edge_velocity.h>
 #include <teb_local_planner/g2o_types/edge_acceleration.h>
 #include <teb_local_planner/g2o_types/edge_kinematics.h>
 #include <teb_local_planner/g2o_types/edge_time_optimal.h>
+#include <teb_local_planner/g2o_types/edge_shortest_path.h>
 #include <teb_local_planner/g2o_types/edge_obstacle.h>
 #include <teb_local_planner/g2o_types/edge_dynamic_obstacle.h>
 #include <teb_local_planner/g2o_types/edge_via_point.h>
@@ -605,6 +606,14 @@ protected:
    * @see optimizeGraph
    */
   void AddEdgesTimeOptimal();
+
+  /**
+   * @brief Add all edges (local cost functions) for minimizing the path length
+   * @see EdgeShortestPath
+   * @see buildGraph
+   * @see optimizeGraph
+   */
+  void AddEdgesShortestPath();
   
   /**
    * @brief Add all edges (local cost functions) related to keeping a distance from static obstacles
