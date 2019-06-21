@@ -78,10 +78,12 @@ public:
     double global_plan_viapoint_sep; //!< Min. separation between each two consecutive via-points extracted from the global plan (if negative: disabled)
     bool via_points_ordered; //!< If true, the planner adheres to the order of via-points in the storage container
     double max_global_plan_lookahead_dist; //!< Specify maximum length (cumulative Euclidean distances) of the subset of the global plan taken into account for optimization [if <=0: disabled; the length is also bounded by the local costmap size!]
+    double global_plan_prune_distance; //!< Distance between robot and via_points of global plan which is used for pruning
     bool exact_arc_length; //!< If true, the planner uses the exact arc length in velocity, acceleration and turning rate computations [-> increased cpu time], otherwise the euclidean approximation is used.
     double force_reinit_new_goal_dist; //!< Reinitialize the trajectory if a previous goal is updated with a seperation of more than the specified value in meters (skip hot-starting)
     int feasibility_check_no_poses; //!< Specify up to which pose on the predicted plan the feasibility should be checked each sampling interval.
     bool publish_feedback; //!< Publish planner feedback containing the full trajectory and a list of active obstacles (should be enabled only for evaluation or debugging purposes)
+    double min_resolution_collision_check_angular; //! Min angular resolution used during the costmap collision check. If not respected, intermediate samples are added. [rad]
   } trajectory; //!< Trajectory related parameters
     
   //! Robot related parameters
@@ -148,7 +150,8 @@ public:
     double weight_kinematics_nh; //!< Optimization weight for satisfying the non-holonomic kinematics
     double weight_kinematics_forward_drive; //!< Optimization weight for forcing the robot to choose only forward directions (positive transl. velocities, only diffdrive robot)
     double weight_kinematics_turning_radius; //!< Optimization weight for enforcing a minimum turning radius (carlike robots)
-    double weight_optimaltime; //!< Optimization weight for contracting the trajectory w.r.t transition time
+    double weight_optimaltime; //!< Optimization weight for contracting the trajectory w.r.t. transition time
+    double weight_shortest_path; //!< Optimization weight for contracting the trajectory w.r.t. path length
     double weight_obstacle; //!< Optimization weight for satisfying a minimum separation from obstacles
     double weight_inflation; //!< Optimization weight for the inflation penalty (should be small)
     double weight_dynamic_obstacle; //!< Optimization weight for satisfying a minimum separation from dynamic obstacles    
@@ -157,6 +160,7 @@ public:
     double weight_prefer_rotdir; //!< Optimization weight for preferring a specific turning direction (-> currently only activated if an oscillation is detected, see 'oscillation_recovery'
     
     double weight_adapt_factor; //!< Some special weights (currently 'weight_obstacle') are repeatedly scaled by this factor in each outer TEB iteration (weight_new = weight_old*factor); Increasing weights iteratively instead of setting a huge value a-priori leads to better numerical conditions of the underlying optimization problem.
+    double obstacle_cost_exponent; //!< Exponent for nonlinear obstacle cost (cost = linear_cost * obstacle_cost_exponent). Set to 1 to disable nonlinear cost (default)
   } optim; //!< Optimization related parameters
   
   
@@ -232,10 +236,12 @@ public:
     trajectory.global_plan_viapoint_sep = -1;
     trajectory.via_points_ordered = false;
     trajectory.max_global_plan_lookahead_dist = 1;
+    trajectory.global_plan_prune_distance = 1;
     trajectory.exact_arc_length = false;
     trajectory.force_reinit_new_goal_dist = 1;
     trajectory.feasibility_check_no_poses = 5;
     trajectory.publish_feedback = false;
+    trajectory.min_resolution_collision_check_angular = M_PI;
     
     // Robot
          
@@ -291,6 +297,7 @@ public:
     optim.weight_kinematics_forward_drive = 1;
     optim.weight_kinematics_turning_radius = 1;
     optim.weight_optimaltime = 1;
+    optim.weight_shortest_path = 0;
     optim.weight_obstacle = 50;
     optim.weight_inflation = 0.1;
     optim.weight_dynamic_obstacle = 50;
