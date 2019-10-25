@@ -16,6 +16,8 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   nav_core
   nav_msgs
+  mbf_costmap_core
+  mbf_msgs
   roscpp
   std_msgs
   pluginlib
@@ -170,9 +172,9 @@ catkin_package(
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
-# include_directories(include)
+include_directories(include)
 include_directories(
-  include
+  SYSTEM
   ${EXTERNAL_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
