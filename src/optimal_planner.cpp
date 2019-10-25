@@ -238,9 +238,9 @@ bool TebOptimalPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& init
   ROS_ASSERT_MSG(initialized_, "Call initialize() first.");
   if (!teb_.isInit())
   {
-    // init trajectory
-    teb_.initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x, cfg_->trajectory.global_plan_overwrite_orientation, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
-  } 
+    teb_.initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x, cfg_->robot.max_vel_theta, cfg_->trajectory.global_plan_overwrite_orientation,
+      cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
+  }
   else // warm start
   {
     PoseSE2 start_(initial_plan.front().pose);
@@ -251,7 +251,8 @@ bool TebOptimalPlanner::plan(const std::vector<geometry_msgs::PoseStamped>& init
     {
       ROS_DEBUG("New goal: distance to existing goal is higher than the specified threshold. Reinitalizing trajectories.");
       teb_.clearTimedElasticBand();
-      teb_.initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x, true, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
+      teb_.initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x, cfg_->robot.max_vel_theta, cfg_->trajectory.global_plan_overwrite_orientation,
+        cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
     }
   }
   if (start_vel)
@@ -384,9 +385,12 @@ bool TebOptimalPlanner::optimizeGraph(int no_iterations,bool clear_after)
 void TebOptimalPlanner::clearGraph()
 {
   // clear optimizer states
-  //optimizer.edges().clear(); // optimizer.clear deletes edges!!! Therefore do not run optimizer.edges().clear()
-  optimizer_->vertices().clear();  // neccessary, because optimizer->clear deletes pointer-targets (therefore it deletes TEB states!)
-  optimizer_->clear();	
+  if (optimizer_)
+  {
+    //optimizer.edges().clear(); // optimizer.clear deletes edges!!! Therefore do not run optimizer.edges().clear()
+    optimizer_->vertices().clear();  // neccessary, because optimizer->clear deletes pointer-targets (therefore it deletes TEB states!)
+    optimizer_->clear();
+  }
 }
 
 
@@ -1083,7 +1087,7 @@ void TebOptimalPlanner::extractVelocity(const PoseSE2& pose1, const PoseSE2& pos
   omega = orientdiff/dt;
 }
 
-bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega) const
+bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega, int look_ahead_poses) const
 {
   if (teb_.sizePoses()<2)
   {
@@ -1093,8 +1097,17 @@ bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega
     omega = 0;
     return false;
   }
-  
-  double dt = teb_.TimeDiff(0);
+  look_ahead_poses = std::max(1, std::min(look_ahead_poses, teb_.sizePoses() - 1));
+  double dt = 0.0;
+  for(int counter = 0; counter < look_ahead_poses; ++counter)
+  {
+    dt += teb_.TimeDiff(counter);
+    if(dt >= cfg_->trajectory.dt_ref * look_ahead_poses)  // TODO: change to look-ahead time? Refine trajectory?
+    {
+        look_ahead_poses = counter + 1;
+        break;
+    }
+  }
   if (dt<=0)
   {	
     ROS_ERROR("TebOptimalPlanner::getVelocityCommand() - timediff<=0 is invalid!");
@@ -1105,7 +1118,7 @@ bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega
   }
 	  
   // Get velocity from the first two configurations
-  extractVelocity(teb_.Pose(0), teb_.Pose(1), dt, vx, vy, omega);
+  extractVelocity(teb_.Pose(0), teb_.Pose(look_ahead_poses), dt, vx, vy, omega);
   return true;
 }
 
@@ -1197,7 +1210,7 @@ bool TebOptimalPlanner::isTrajectoryFeasible(base_local_planner::CostmapModel* c
   
   for (int i=0; i <= look_ahead_idx; ++i)
   {           
-    if ( costmap_model->footprintCost(teb().Pose(i).x(), teb().Pose(i).y(), teb().Pose(i).theta(), footprint_spec, inscribed_radius, circumscribed_radius) < 0 )
+    if ( costmap_model->footprintCost(teb().Pose(i).x(), teb().Pose(i).y(), teb().Pose(i).theta(), footprint_spec, inscribed_radius, circumscribed_radius) == -1 )
     {
       if (visualization_)
       {
@@ -1246,14 +1259,15 @@ bool TebOptimalPlanner::isHorizonReductionAppropriate(const std::vector<geometry
     return false;
   
   // check if distance is at least 2m long // hardcoded for now
-  double dist = 0;
+ 
+  double traj_dist = 0;
   for (int i=1; i < teb_.sizePoses(); ++i)
   {
-    dist += ( teb_.Pose(i).position() - teb_.Pose(i-1).position() ).norm();
-    if (dist > 2)
+    traj_dist += ( teb_.Pose(i).position() - teb_.Pose(i-1).position() ).norm();
+    if (traj_dist > 2)
       break;
   }
-  if (dist <= 2)
+  if (traj_dist <= 2)
     return false;
   
   // check if goal orientation is differing with more than 90° and the horizon is still long enough to exclude parking maneuvers.
