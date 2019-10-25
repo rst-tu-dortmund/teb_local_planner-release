@@ -125,7 +125,7 @@ bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const
   return true;
 }
 
-bool HomotopyClassPlanner::getVelocityCommand(double& vx, double& vy, double& omega) const
+bool HomotopyClassPlanner::getVelocityCommand(double& vx, double& vy, double& omega, int look_ahead_poses) const
 {
   TebOptimalPlannerConstPtr best_teb = bestTeb();
   if (!best_teb)
@@ -136,7 +136,7 @@ bool HomotopyClassPlanner::getVelocityCommand(double& vx, double& vy, double& om
     return false;
   }
 
-  return best_teb->getVelocityCommand(vx, vy, omega);
+  return best_teb->getVelocityCommand(vx, vy, omega, look_ahead_poses);
 }
 
 
@@ -381,7 +381,7 @@ TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const std::vector<ge
     return TebOptimalPlannerPtr();
   TebOptimalPlannerPtr candidate = TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_, robot_model_, visualization_));
 
-  candidate->teb().initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x,
+  candidate->teb().initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x, cfg_->robot.max_vel_theta,
     cfg_->trajectory.global_plan_overwrite_orientation, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
 
   if (start_velocity)
