@@ -2,8 +2,34 @@
 Changelog for package teb_local_planner
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.8.2 (2019-07-02)
-------------------
+0.6.14 (2019-10-25)
+-------------------
+* Rename variable instead of scoping it's usage
+* test_optim_node fix circular obstacles (thanks to dtaranta)
+* Fix shadow variable warning (thanks to Victor Lopez)
+* Use SYSTEM when including external dependencies headers (thanks to Victor Lopez)
+* Limiting the control look-ahead pose to the first that execeeds the expected look-ahead time (thanks to Marco Bassa)
+* Adding the option to shift ahead the target pose used to extract the velocity command (thanks to Marco Bassa)
+* Fixed segfault in optimal_planner.cpp when clearing graph with unallocated optimizer.
+  Fixes `#158 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/158>`_.
+* Added warning if parameter optimal_time is <= 0
+* Nonlinear obstacle cost from EdgeInflatedObstacle also added to EdgeObstacle.
+  See `#140 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/140>`_.
+* Fixed proper initialization of parameter obstacle_cost_exponent in case it is not loaded from the parameter server
+* Contributors: Christoph Rösmann, Marco Bassa, Victor Lopez, dtaranta
+
+0.6.13 (2019-07-01)
+-------------------
+* Avoiding h signature interpolation between coincident poses (thanks to Marco Bassa)
+* New strategy for the deletion of detours: Detours are now determined w.r.t. the least-cost alternative and not w.r.t. just the goal heading.
+  Deletion of additional alternatives applies if either an initial backward motion is detected, if the transition time is much bigger than the duration of the best teb
+  and if a teb cannot be optimized (thanks to Marco Bassa).
+  Optionally allowing the usage of the initial plan orientation when initializing new tebs.
+* Contributors: Christoph Rösmann, Marco Bassa
+
+0.6.12 (2019-06-21)
+-------------------
+
 * Allow scripts to be executable and usable by rosrun after catkin_make install and through the catkin release process (thanks to Devon Ash)
 * Add nonlinear part to obstacle cost to improve narrow gap behavior.
   Parameter `obstacle_cost_exponent` defines the exponent of the nonlinear cost term.
@@ -26,29 +52,16 @@ Changelog for package teb_local_planner
 * Changed isTrajectoryFeasible function to allow for a more accurate linear and angular discretization (thanks to Marco Bassa)
 * Function TebOptimalPlanner::computeError() considers now the actual optimizer weights. 
   As a result, the default value of `selection_obst_cost_scale` is reduced (thanks to Howard Cochran).
-* update to use non deprecated pluginlib macro (thanks to Mikael Arguedas)
-* Avoiding h signature interpolation between coincident poses (thanks to Marco Bassa)
-* New strategy for the deletion of detours: Detours are now determined w.r.t. the least-cost alternative and not w.r.t. just the goal heading.
-  Deletion of additional alternatives applies if either an initial backward motion is detected, if the transition time is much bigger than the duration of the best teb
-  and if a teb cannot be optimized (thanks to Marco Bassa).
-  Optionally allowing the usage of the initial plan orientation when initializing new tebs.
-* Contributors: Christoph Rösmann, Mikael Arguedas, Devon Ash, Howard Cochran, Marco Bassa, ShiquLIU, Tobi Loew, corot
+* Contributors: Christoph Rösmann, Devon Ash, Howard Cochran, Marco Bassa, ShiquLIU, Tobi Loew, corot
 
-0.8.1 (2018-08-14)
-------------------
-* bugfix in calculateHSignature. Fixes `#90 <https://github.com/rst-tu-dortmund/teb_local_planner/issues/90>`_.
+0.6.11 (2018-08-14)
+-------------------
+* bugfix in calculateHSignature. Fixes #90.
 * fixed centroid computation in a special case of polygon-obstacles
 * Contributors: Christoph Rösmann
 
-0.8.0 (2018-08-06)
-------------------
-* First melodic release
-* Updated to new g2o API
-* Migration to tf2
-* Contributors: Christoph Rösmann
-
-0.7.3 (2018-07-05)
-------------------
+0.6.10 (2018-07-05)
+-------------------
 * Parameter `switching_blocking_period` added to homotopy class planner parameter group.
   Values greater than zero enforce the homotopy class planner to only switch to new equivalence classes as soon
   as the given period is expired (this might reduce oscillations in some scenarios). The value is set to zero seconds
@@ -69,7 +82,7 @@ Changelog for package teb_local_planner
 * dynamic_reconfigure: parameter visualize_with_time_as_z_axis_scale moved to group trajectory
 * Contributors: Christoph Rösmann
 
-0.7.2 (2018-06-08)
+0.6.9 (2018-06-08)
 ------------------
 * Adds the possibility to provide via-points via a topic. 
   Currently, the user needs to decide whether to receive via-points from topic or to obtain them from the global reference plan 
@@ -77,7 +90,7 @@ Changelog for package teb_local_planner
   A small test script publish_viapoints.py is provided to demonstrate the feature within test_optim_node.
 * Contributors: Christoph Rösmann
 
-0.7.1 (2018-06-05)
+0.6.8 (2018-06-05)
 ------------------
 * Fixed a crucial bug (from 0.6.6): A cost function for prefering a clockwise resp. anti-clockwise turn was enabled by default.
   This cost function was only intended to be active only for recovering from an oscillating robot. 
@@ -92,7 +105,7 @@ Changelog for package teb_local_planner
 * Normalize marker quaternions in *test_optim_node*
 * Contributors: Christoph Rösmann, Alexander Reimann, Mikael Arguedas, wollip
 
-0.7.0 (2017-09-23)
+0.6.7 (2017-09-21)
 ------------------
 * This update introduces support for dynamic obstacles (thanks to Franz Albers, who implemented and tested the code).
   Dynamic obstacle support requires parameter *include\_dynamic\_obstacles* to be activated.

@@ -38,7 +38,6 @@
 
 #include <teb_local_planner/optimal_planner.h>
 #include <map>
-#include <memory>
 #include <limits>
 
 
@@ -155,10 +154,10 @@ boost::shared_ptr<g2o::SparseOptimizer> TebOptimalPlanner::initOptimizer()
 
   // allocating the optimizer
   boost::shared_ptr<g2o::SparseOptimizer> optimizer = boost::make_shared<g2o::SparseOptimizer>();
-  std::unique_ptr<TEBLinearSolver> linear_solver(new TEBLinearSolver()); // see typedef in optimization.h
-  linear_solver->setBlockOrdering(true);
-  std::unique_ptr<TEBBlockSolver> block_solver(new TEBBlockSolver(std::move(linear_solver)));
-  g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
+  TEBLinearSolver* linearSolver = new TEBLinearSolver(); // see typedef in optimization.h
+  linearSolver->setBlockOrdering(true);
+  TEBBlockSolver* blockSolver = new TEBBlockSolver(linearSolver);
+  g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(blockSolver);
 
   optimizer->setAlgorithm(solver);
   
@@ -384,9 +383,12 @@ bool TebOptimalPlanner::optimizeGraph(int no_iterations,bool clear_after)
 void TebOptimalPlanner::clearGraph()
 {
   // clear optimizer states
-  //optimizer.edges().clear(); // optimizer.clear deletes edges!!! Therefore do not run optimizer.edges().clear()
-  optimizer_->vertices().clear();  // neccessary, because optimizer->clear deletes pointer-targets (therefore it deletes TEB states!)
-  optimizer_->clear();	
+  if (optimizer_)
+  {
+    //optimizer.edges().clear(); // optimizer.clear deletes edges!!! Therefore do not run optimizer.edges().clear()
+    optimizer_->vertices().clear();  // neccessary, because optimizer->clear deletes pointer-targets (therefore it deletes TEB states!)
+    optimizer_->clear();
+  }
 }
 
 
@@ -1083,7 +1085,7 @@ void TebOptimalPlanner::extractVelocity(const PoseSE2& pose1, const PoseSE2& pos
   omega = orientdiff/dt;
 }
 
-bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega) const
+bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega, int look_ahead_poses) const
 {
   if (teb_.sizePoses()<2)
   {
@@ -1093,8 +1095,17 @@ bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega
     omega = 0;
     return false;
   }
-  
-  double dt = teb_.TimeDiff(0);
+  look_ahead_poses = std::max(1, std::min(look_ahead_poses, teb_.sizePoses() - 1));
+  double dt = 0.0;
+  for(int counter = 0; counter < look_ahead_poses; ++counter)
+  {
+    dt += teb_.TimeDiff(counter);
+    if(dt >= cfg_->trajectory.dt_ref * look_ahead_poses)  // TODO: change to look-ahead time? Refine trajectory?
+    {
+        look_ahead_poses = counter + 1;
+        break;
+    }
+  }
   if (dt<=0)
   {	
     ROS_ERROR("TebOptimalPlanner::getVelocityCommand() - timediff<=0 is invalid!");
@@ -1105,7 +1116,7 @@ bool TebOptimalPlanner::getVelocityCommand(double& vx, double& vy, double& omega
   }
 	  
   // Get velocity from the first two configurations
-  extractVelocity(teb_.Pose(0), teb_.Pose(1), dt, vx, vy, omega);
+  extractVelocity(teb_.Pose(0), teb_.Pose(look_ahead_poses), dt, vx, vy, omega);
   return true;
 }
 
@@ -1246,14 +1257,15 @@ bool TebOptimalPlanner::isHorizonReductionAppropriate(const std::vector<geometry
     return false;
   
   // check if distance is at least 2m long // hardcoded for now
-  double dist = 0;
+ 
+  double traj_dist = 0;
   for (int i=1; i < teb_.sizePoses(); ++i)
   {
-    dist += ( teb_.Pose(i).position() - teb_.Pose(i-1).position() ).norm();
-    if (dist > 2)
+    traj_dist += ( teb_.Pose(i).position() - teb_.Pose(i-1).position() ).norm();
+    if (traj_dist > 2)
       break;
   }
-  if (dist <= 2)
+  if (traj_dist <= 2)
     return false;
   
   // check if goal orientation is differing with more than 90° and the horizon is still long enough to exclude parking maneuvers.

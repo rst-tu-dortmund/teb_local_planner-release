@@ -51,13 +51,13 @@
 #include <teb_local_planner/robot_footprint_model.h>
 
 // g2o lib stuff
-#include <g2o/core/sparse_optimizer.h>
-#include <g2o/core/block_solver.h>
-#include <g2o/core/factory.h>
-#include <g2o/core/optimization_algorithm_gauss_newton.h>
-#include <g2o/core/optimization_algorithm_levenberg.h>
-#include <g2o/solvers/csparse/linear_solver_csparse.h>
-#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
+#include "g2o/core/sparse_optimizer.h"
+#include "g2o/core/block_solver.h"
+#include "g2o/core/factory.h"
+#include "g2o/core/optimization_algorithm_gauss_newton.h"
+#include "g2o/core/optimization_algorithm_levenberg.h"
+#include "g2o/solvers/csparse/linear_solver_csparse.h"
+#include "g2o/solvers/cholmod/linear_solver_cholmod.h"
 
 // g2o custom edges and vertices for the TEB planner
 #include <teb_local_planner/g2o_types/edge_velocity.h>
@@ -211,9 +211,10 @@ public:
    * @param[out] vx translational velocity [m/s]
    * @param[out] vy strafing velocity which can be nonzero for holonomic robots[m/s] 
    * @param[out] omega rotational velocity [rad/s]
+   * @param[in] look_ahead_poses index of the final pose used to compute the velocity command.
    * @return \c true if command is valid, \c false otherwise
    */
-  virtual bool getVelocityCommand(double& vx, double& vy, double& omega) const;
+  virtual bool getVelocityCommand(double& vx, double& vy, double& omega, int look_ahead_poses) const;
   
   
   /**

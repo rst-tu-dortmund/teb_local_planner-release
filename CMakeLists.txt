@@ -19,10 +19,8 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   pluginlib
-  tf2
-  tf2_eigen
-  tf2_geometry_msgs
-  tf2_ros
+  tf
+  tf_conversions
   visualization_msgs
 )
 message(STATUS "System: ${CMAKE_SYSTEM}")
@@ -158,8 +156,8 @@ catkin_package(
 	pluginlib
 	roscpp
 	std_msgs
-        tf2
-        tf2_ros
+	tf
+	tf_conversions
 	visualization_msgs
   DEPENDS SUITESPARSE G2O
 )
@@ -170,9 +168,9 @@ catkin_package(
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
-# include_directories(include)
+include_directories(include)
 include_directories(
-  include
+  SYSTEM
   ${EXTERNAL_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
