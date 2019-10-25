@@ -66,6 +66,7 @@ void TebConfig::loadRosParamFromNodeHandle(const ros::NodeHandle& nh)
   nh.param("feasibility_check_no_poses", trajectory.feasibility_check_no_poses, trajectory.feasibility_check_no_poses);
   nh.param("publish_feedback", trajectory.publish_feedback, trajectory.publish_feedback);
   nh.param("min_resolution_collision_check_angular", trajectory.min_resolution_collision_check_angular, trajectory.min_resolution_collision_check_angular);
+  nh.param("control_look_ahead_poses", trajectory.control_look_ahead_poses, trajectory.control_look_ahead_poses);
   
   // Robot
   nh.param("max_vel_x", robot.max_vel_x, robot.max_vel_x);
@@ -318,6 +319,10 @@ void TebConfig::checkParameters() const
   
   if (recovery.oscillation_filter_duration < 0)
       ROS_WARN("TebLocalPlannerROS() Param Warning: parameter oscillation_filter_duration must be >= 0");
+
+  // weights
+  if (optim.weight_optimaltime <= 0)
+      ROS_WARN("TebLocalPlannerROS() Param Warning: parameter weight_optimaltime shoud be > 0 (even if weight_shortest_path is in use)");
   
 }    
 
