@@ -1,3 +1,26 @@
+## teb_local_planner (noetic) - 0.9.0-1
+
+The packages in the `teb_local_planner` repository were released into the `noetic` distro by running `/usr/bin/bloom-release teb_local_planner --track noetic --rosdistro noetic` on `Tue, 26 May 2020 17:18:22 -0000`
+
+The `teb_local_planner` package was released.
+
+Version of package(s) in repository `teb_local_planner`:
+
+- upstream repository: https://github.com/rst-tu-dortmund/teb_local_planner.git
+- release repository: unknown
+- rosdistro version: `null`
+- old version: `null`
+- new version: `0.9.0-1`
+
+Versions of tools used:
+
+- bloom version: `0.9.7`
+- catkin_pkg version: `0.4.20`
+- rosdep version: `0.19.0`
+- rosdistro version: `0.8.2`
+- vcstools version: `0.1.42`
+
+
 ## teb_local_planner (melodic) - 0.8.4-1
 
 The packages in the `teb_local_planner` repository were released into the `melodic` distro by running `/usr/bin/bloom-release teb_local_planner --rosdistro melodic` on `Mon, 02 Dec 2019 08:36:55 -0000`
